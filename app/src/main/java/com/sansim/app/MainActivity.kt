@@ -36,6 +36,10 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
@@ -798,6 +802,10 @@ class MainActivity: ComponentActivity(){ private val req=registerForActivityResu
                     records= if(records.any{it.id==nr.id}) records.map{if(it.id==nr.id)nr else it} else records+nr
                     DataStore.saveRecords(ctx,records); autoCloudSync(records,settings)
                     edit=null
+                }, onDelete={r->
+                    records=records.filter{it.id!=r.id}
+                    DataStore.saveRecords(ctx,records); autoCloudSync(records,settings)
+                    edit=null
                 })
             } else {
                 Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)){
@@ -876,18 +884,19 @@ fun shareExportFile(ctx:Context,fileName:String,mime:String,content:String,title
 @Composable fun SimHubTopBar(screen:String,dark:Boolean,onToggleDark:()->Unit,search:String,onSearch:(String)->Unit,on:(String)->Unit){
     val bg=if(dark) Color(0xFF0B0F17) else Color(0xFFF4F6FA)
     val surface=if(dark) Color(0xFF151922) else Color.White
-    Column(Modifier.fillMaxWidth().background(bg).padding(start=18.dp,end=18.dp,top=42.dp,bottom=10.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
+    val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    Column(Modifier.fillMaxWidth().background(bg).padding(start=18.dp,end=18.dp,top=statusBarTop+8.dp,bottom=6.dp)){
         if(screen=="home"){
-            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.Start){
-                IconCircle(if(dark) "☾" else "◐",onToggleDark)
+            // search bar + dark mode toggle on same row
+            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                TextField(value=search,onValueChange=onSearch,modifier=Modifier.weight(1f).heightIn(min=36.dp).clip(RoundedCornerShape(12.dp)),singleLine=true,
+                    placeholder={Text(L("搜索运营商、国家或号码"),fontSize=13.sp,color=Color(0xFF8E8E93),maxLines=1,overflow=TextOverflow.Ellipsis)},leadingIcon={Canvas(Modifier.size(16.dp)){drawCircle(Color(0xFF8E8E93),radius=size.width/2-1.dp.toPx(),style=Stroke(1.5.dp.toPx()));drawLine(Color(0xFF8E8E93),Offset(size.width*.65f,size.height*.65f),Offset(size.width*.85f,size.height*.85f),strokeWidth=1.5.dp.toPx())}},
+                    colors=TextFieldDefaults.colors(focusedContainerColor=surface,unfocusedContainerColor=surface,focusedIndicatorColor=Color.Transparent,unfocusedIndicatorColor=Color.Transparent))
+                IconCircle(if(dark) "M" else "S",onToggleDark)
             }
-            TextField(value=search,onValueChange=onSearch,modifier=Modifier.fillMaxWidth().heightIn(min=56.dp).clip(RoundedCornerShape(18.dp)),singleLine=true,
-                placeholder={Text(L("搜索运营商、国家或号码"),fontSize=13.sp,color=Color(0xFF8E8E93),maxLines=1,overflow=TextOverflow.Ellipsis)},leadingIcon={Text("⌕",fontSize=18.sp,color=Color(0xFF8E8E93))},
-                colors=TextFieldDefaults.colors(focusedContainerColor=surface,unfocusedContainerColor=surface,focusedIndicatorColor=Color.Transparent,unfocusedIndicatorColor=Color.Transparent))
         }else{
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
                 Text(when(screen){"tools"->L("工具");"settings"->L("设置");else->L("号码")},fontSize=26.sp,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f),color=if(dark) Color.White else Color(0xFF111827))
-                // hidden: right-top Done button removed per user request
             }
         }
     }
@@ -897,11 +906,11 @@ fun shareExportFile(ctx:Context,fileName:String,mime:String,content:String,title
     Box(Modifier.size(34.dp).clip(RoundedCornerShape(17.dp)).background(Color.White.copy(alpha=.92f)).border(.6.dp,Color(0xFFE5E7EB),RoundedCornerShape(17.dp)).clickable{onClick()},contentAlignment=Alignment.Center){Text(text,fontSize=15.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF374151))}
 }
 
-@Composable fun FilterToolRow(filter:String,sortMode:String,onFilter:(String)->Unit,onSort:()->Unit){
-    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
-        FilterTool("▤",filter,Modifier.weight(1f)){onFilter(when(filter){"全部"->"正常";"正常"->"即将到期";"即将到期"->"已过期";else->"全部"})}
-        FilterTool("🏷",L("国家视图"),Modifier.weight(1f)){onFilter("全部")}
+@Composable fun FilterToolRow(filter:String,sortMode:String,onFilter:(String)->Unit,onSort:()->Unit,count:Int){
+    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically){
+        FilterTool("≡",filter,Modifier.weight(1f)){onFilter(when(filter){"全部"->"正常";"正常"->"即将到期";"即将到期"->"已过期";else->"全部"})}
         FilterTool("↕",if(sortMode=="到期近") L("近到远") else L("远到近"),Modifier.weight(1f)){onSort()}
+        Text("$count",fontSize=14.sp,fontWeight=FontWeight.Bold,color=Color(0xFF007AFF))
     }
 }
 
@@ -915,11 +924,13 @@ fun shareExportFile(ctx:Context,fileName:String,mime:String,content:String,title
     var hidden by remember{ mutableStateOf(true) }
     var del by remember{ mutableStateOf(false) }
     var keep by remember{ mutableStateOf(false) }
-    Card(shape=RoundedCornerShape(24.dp),colors=CardDefaults.cardColors(containerColor=Color.White.copy(alpha=.78f)),elevation=CardDefaults.cardElevation(1.dp),modifier=Modifier.fillMaxWidth().height(150.dp).border(.8.dp,Color.White.copy(alpha=.86f),RoundedCornerShape(22.dp))){
+    Card(shape=RoundedCornerShape(24.dp),colors=CardDefaults.cardColors(containerColor=Color.White.copy(alpha=.35f)),elevation=CardDefaults.cardElevation(0.dp),modifier=Modifier.fillMaxWidth().height(150.dp).border(1.dp,Color.White.copy(alpha=.50f),RoundedCornerShape(24.dp))){
         Box(Modifier.fillMaxSize()){
+            // frosted glass shimmer
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.White.copy(alpha=.45f),Color.White.copy(alpha=.22f),Color.White.copy(alpha=.38f)))).clip(RoundedCornerShape(24.dp)))
             if(showFlag){
                 FlagArtPanel(r,Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(.43f))
-                Box(Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(.56f).background(Brush.horizontalGradient(listOf(Color.White,Color.White.copy(alpha=.82f),Color.White.copy(alpha=.30f),Color.Transparent))))
+                Box(Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(.56f).background(Brush.horizontalGradient(listOf(Color.White.copy(alpha=.60f),Color.White.copy(alpha=.40f),Color.White.copy(alpha=.15f),Color.Transparent))))
             }
             Column(Modifier.fillMaxSize().padding(start=10.dp,end=10.dp,top=7.dp,bottom=6.dp),verticalArrangement=Arrangement.SpaceBetween){
                 Row(verticalAlignment=Alignment.CenterVertically){
@@ -947,10 +958,9 @@ fun shareExportFile(ctx:Context,fileName:String,mime:String,content:String,title
                 Box(Modifier.fillMaxWidth(.80f).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color(0xFFE5E7EB))){Box(Modifier.fillMaxWidth(progress).fillMaxHeight().background(Color(0xFF22C55E)))}
                 Spacer(Modifier.height(2.dp))
                 Row(horizontalArrangement=Arrangement.spacedBy(18.dp)){
-                    CardIconAction("keep",Color(0xFF34C759)){keep=true}
+                    CardIconAction("keep",Color(0xFF8B5CF6)){keep=true}
                     CardIconAction("traffic",Color(0xFF007AFF)){onTraffic(r)}
                     CardIconAction("edit",Color(0xFFFF9500)){on编辑(r)}
-                    CardIconAction("delete",Color(0xFFFF3B30)){del=true}
                 }
             }
         }
@@ -1387,8 +1397,7 @@ object OperatorLogoAssets {
     Box(Modifier.fillMaxSize()){
         AppBackground(settings)
         LazyColumn(Modifier.fillMaxSize().padding(horizontal=22.dp),verticalArrangement=Arrangement.spacedBy(9.dp)){
-            item{ FilterToolRow(filter,sortMode,on筛选,on排序) }
-            item{ Row(Modifier.fillMaxWidth().padding(horizontal=2.dp,vertical=2.dp),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){ Text(if(sortMode=="到期远") L("到期时间（远到近）") else L("到期时间（近到远）"),fontSize=14.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF374151)); Text("${shown.size} ${if(LocalAppLanguage.current=="English") "cards" else if(LocalAppLanguage.current=="日本語") "枚" else if(LocalAppLanguage.current=="阿拉伯语") "بطاقات" else "张卡片"}",fontSize=13.sp,color=Color(0xFF6B7280)) } }
+            item{ FilterToolRow(filter,sortMode,on筛选,on排序,shown.size) }
             if(shown.isEmpty()) item{ Box(Modifier.fillMaxWidth().height(260.dp),contentAlignment=Alignment.Center){ Column(horizontalAlignment=Alignment.CenterHorizontally){Text(L("暂无号码"),fontSize=18.sp,fontWeight=FontWeight.SemiBold);Text(L("点击右下角添加号码"),fontSize=13.sp,color=Color(0xFF8E8E93))} } }
             else items(shown,key={it.id}){ r-> CompactSimCard(r,on编辑,onDel,onTraffic,onKeep,daysOf(r),settings.remind天,settings.showFlag) }
             item{ Spacer(Modifier.height(90.dp)) }
@@ -1705,7 +1714,7 @@ fun fakeEidForCard(r:PhoneNumberRecord):String{ val seed=(r.id+r.number).hashCod
 
 
 @OptIn(ExperimentalLayoutApi::class)
-@Composable fun Full编辑Screen(init:PhoneNumberRecord,onDismiss:()->Unit,onSave:(PhoneNumberRecord)->Unit){
+@Composable fun Full编辑Screen(init:PhoneNumberRecord,onDismiss:()->Unit,onSave:(PhoneNumberRecord)->Unit,onDelete:(PhoneNumberRecord)->Unit={}){
     BackHandler { onDismiss() }
     var r by remember { mutableStateOf(init) }
     var countryDlg by remember { mutableStateOf(false) }
@@ -1721,7 +1730,8 @@ fun fakeEidForCard(r:PhoneNumberRecord):String{ val seed=(r.id+r.number).hashCod
     }
     Box(Modifier.fillMaxSize().background(Color(0xFFF2F3F7))){
         Column(Modifier.fillMaxSize()){
-            Row(Modifier.fillMaxWidth().padding(start=18.dp,end=18.dp,top=42.dp,bottom=12.dp),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){
+            val editStatusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+            Row(Modifier.fillMaxWidth().padding(start=18.dp,end=18.dp,top=editStatusBarTop+8.dp,bottom=12.dp),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){
                 TextButton(onClick=onDismiss,modifier=Modifier.height(36.dp).clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha=.90f)).border(.7.dp,Color.White.copy(alpha=.75f),RoundedCornerShape(12.dp)),contentPadding=PaddingValues(horizontal=12.dp,vertical=0.dp)){Text(L("取消"),color=Color(0xFF007AFF),fontWeight=FontWeight.SemiBold)}
                 Text(if(init.number.isBlank()) L("新增 eSIM") else L("编辑 eSIM"),fontSize=19.sp,fontWeight=FontWeight.Bold,color=Color(0xFF111827))
                 TextButton(onClick={onSave(r)},modifier=Modifier.height(36.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF007AFF)),contentPadding=PaddingValues(horizontal=14.dp,vertical=0.dp)){Text(L("完成"),fontWeight=FontWeight.Bold,color=Color.White)}
@@ -1800,6 +1810,26 @@ fun fakeEidForCard(r:PhoneNumberRecord):String{ val seed=(r.id+r.number).hashCod
                     }
                 }
                 item{ Spacer(Modifier.height(28.dp)) }
+                item{
+                    var showDel by remember{mutableStateOf(false)}
+                    Button(onClick={showDel=true},modifier=Modifier.fillMaxWidth().height(50.dp),shape=RoundedCornerShape(14.dp),colors=ButtonDefaults.buttonColors(containerColor=Color(0xFFFF3B30)),contentPadding=PaddingValues(horizontal=16.dp)){
+                        Text(L("删除"),fontSize=16.sp,fontWeight=FontWeight.SemiBold,color=Color.White)
+                    }
+                    if(showDel){
+                        Dialog(onDismissRequest={showDel=false}){
+                            Surface(shape=RoundedCornerShape(20.dp),color=Color.White){
+                                Column(Modifier.padding(24.dp),verticalArrangement=Arrangement.spacedBy(16.dp),horizontalAlignment=Alignment.CenterHorizontally){
+                                    Text(L("确认删除"),fontSize=20.sp,fontWeight=FontWeight.Bold,color=Color(0xFF111827))
+                                    Text(L("删除后无法恢复，确定要删除这个号码吗？"),fontSize=14.sp,color=Color(0xFF6B7280))
+                                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp)){
+                                        Button(onClick={showDel=false},modifier=Modifier.weight(1f).height(48.dp),shape=RoundedCornerShape(14.dp),colors=ButtonDefaults.buttonColors(containerColor=Color(0xFFF2F3F7))){Text(L("取消"),color=Color(0xFF007AFF),fontSize=16.sp)}
+                                        Button(onClick={onDelete(r)},modifier=Modifier.weight(1f).height(48.dp),shape=RoundedCornerShape(14.dp),colors=ButtonDefaults.buttonColors(containerColor=Color(0xFFFF3B30))){Text(L("删除"),color=Color.White,fontSize=16.sp,fontWeight=FontWeight.SemiBold)}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -1943,7 +1973,7 @@ fun fakeEidForCard(r:PhoneNumberRecord):String{ val seed=(r.id+r.number).hashCod
                     Text(L("选择国家区号"),fontSize=20.sp,fontWeight=FontWeight.Bold,color=Color(0xFF111827),modifier=Modifier.weight(1f))
                     TextButton(onDismiss){Text(L("取消"),color=Color(0xFF007AFF))}
                 }
-                TextField(value=q,onValueChange={q=it},modifier=Modifier.fillMaxWidth().heightIn(min=56.dp).clip(RoundedCornerShape(17.dp)),singleLine=true,placeholder={Text(L("搜索国家 / 区号 / ISO"))},leadingIcon={Text("⌕",color=Color(0xFF8E8E93))},colors=TextFieldDefaults.colors(focusedContainerColor=Color.White,unfocusedContainerColor=Color.White,focusedIndicatorColor=Color.Transparent,unfocusedIndicatorColor=Color.Transparent))
+                TextField(value=q,onValueChange={q=it},modifier=Modifier.fillMaxWidth().heightIn(min=36.dp).clip(RoundedCornerShape(12.dp)),singleLine=true,placeholder={Text(L("搜索国家 / 区号 / ISO"))},leadingIcon={Canvas(Modifier.size(16.dp)){drawCircle(Color(0xFF8E8E93),radius=size.width/2-1.dp.toPx(),style=Stroke(1.5.dp.toPx()));drawLine(Color(0xFF8E8E93),Offset(size.width*.65f,size.height*.65f),Offset(size.width*.85f,size.height*.85f),strokeWidth=1.5.dp.toPx())}},colors=TextFieldDefaults.colors(focusedContainerColor=Color.White,unfocusedContainerColor=Color.White,focusedIndicatorColor=Color.Transparent,unfocusedIndicatorColor=Color.Transparent))
                 LazyColumn(Modifier.heightIn(max=460.dp),verticalArrangement=Arrangement.spacedBy(7.dp)){
                     items(Countries.list.filter{it.name.contains(q,true)||it.code.contains(q)||it.iso.contains(q,true)}){ c->
                         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).background(Color.White).clickable{onPick(c)}.padding(horizontal=13.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically){Text(c.flag,fontSize=24.sp);Spacer(Modifier.width(10.dp));Text(c.name,fontSize=16.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.weight(1f));Text("${c.code}  ${c.iso}",fontSize=13.sp,color=Color(0xFF8A94A6));Spacer(Modifier.width(4.dp));Text("›",fontSize=22.sp,color=Color(0xFFC7C7CC))}
@@ -2131,7 +2161,7 @@ fun cloudPost(s:App设置,path:String,body:String,lang:String="简体中文",onR
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
                 Box(Modifier.size(34.dp).clip(RoundedCornerShape(17.dp)).background(Color(0xFF007AFF)),contentAlignment=Alignment.Center){Text("i",color=Color.White,fontWeight=FontWeight.Bold)}
                 Spacer(Modifier.width(10.dp))
-                Text("Sim Jiang v2.8.25\n"+L("开发者")+"：伍六柒\n"+L("本地数据存储"),fontSize=13.sp,color=Color(0xFF4B5563),lineHeight=20.sp)
+                Text("Sim Jiang v2.8.60\n"+L("开发者")+"：伍六柒\n"+L("本地数据存储"),fontSize=13.sp,color=Color(0xFF4B5563),lineHeight=20.sp)
             }
         }
         Spacer(Modifier.height(20.dp))
