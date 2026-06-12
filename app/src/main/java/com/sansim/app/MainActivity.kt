@@ -868,6 +868,7 @@ object OperatorLogoAssets {
         "MD|moldcell" to "file:///android_asset/operator_logos/md_moldcell.png",
         "BY|mts belarus" to "file:///android_asset/operator_logos/by_mts_belarus.png",
         "BY|a1 belarus" to "file:///android_asset/operator_logos/by_a1_belarus.png",
+        "BY|life:) Belarus" to "file:///android_asset/operator_logos/by_life___belarus.png",
         "UA|kyivstar" to "file:///android_asset/operator_logos/ua_kyivstar.png",
         "UA|vodafone ukraine" to "file:///android_asset/operator_logos/ua_vodafone_ukraine.png",
         "UA|lifecell" to "file:///android_asset/operator_logos/ua_lifecell.png",
