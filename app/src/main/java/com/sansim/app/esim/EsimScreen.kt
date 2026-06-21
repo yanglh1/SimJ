@@ -32,10 +32,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import androidx.activity.compose.rememberLauncherForActivityResult
-import android.net.Uri
-import com.google.mlkit.vision.barcode.BarcodeScanning
-import com.google.mlkit.vision.common.InputImage
+import com.sansim.app.i18n.tr
+import com.sansim.app.util.LocalAppLanguage
+import com.sansim.app.util.L
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -45,6 +44,7 @@ import com.sansim.app.LocalIsDark
 @Composable
 fun EsimScreen(modifier: Modifier = Modifier) {
     val dark = LocalIsDark.current
+    val lang = LocalAppLanguage.current
     fun c(light: Color, darkColor: Color) = if (dark) darkColor else light
     val pageBg = c(Color(0xFFF4F5F7), Color(0xFF000000))
     val cardBg = c(Color.White, Color(0xFF1C1C1E))
@@ -60,11 +60,11 @@ fun EsimScreen(modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     val manager = remember { EuiccManager(context) }
 
-    var readerName by remember { mutableStateOf("未连接") }
+    var readerName by remember { mutableStateOf(tr(lang,"未连接")) }
     var eid by remember { mutableStateOf("") }
     var profiles by remember { mutableStateOf<List<EuiccProfile>>(emptyList()) }
     var addresses by remember { mutableStateOf<ConfiguredAddresses?>(null) }
-    var status by remember { mutableStateOf("请选择读卡器") }
+    var status by remember { mutableStateOf(tr(lang,"请选择读卡器")) }
     var busy by remember { mutableStateOf(false) }
     var showLogs by remember { mutableStateOf(false) }
     var showDownload by remember { mutableStateOf(false) }
@@ -77,24 +77,24 @@ fun EsimScreen(modifier: Modifier = Modifier) {
 
     fun refreshUsb() {
         usbDevices = UsbCcReader.findDevices(context)
-        status = "检测到 ${usbDevices.size} 个 USB 设备"
+        status = tr(lang,"检测到")+" ${usbDevices.size} "+tr(lang,"个 USB 设备")
     }
 
     fun refreshData() {
         scope.launch {
             busy = true
             try {
-                status = "读取 EID/Profile..."
+                status = tr(lang,"读取 EID/Profile...")
                 val result = withContext(Dispatchers.IO) {
                     Triple(manager.getEid(), manager.getProfiles(), runCatching { manager.getConfiguredAddresses() }.getOrNull())
                 }
                 eid = result.first
                 profiles = result.second
                 addresses = result.third
-                status = "读取成功：${profiles.size} 个 Profile"
+                status = tr(lang,"读取成功")+"：${profiles.size} "+tr(lang,"个 Profile")
                 LogCollector.d("EsimScreen", "refresh success eid=$eid profiles=${profiles.size}")
             } catch (e: Throwable) {
-                status = "读取失败：${e.message}"
+                status = tr(lang,"读取失败")+"：${e.message}"
                 LogCollector.e("EsimScreen", "refresh failed", e)
             } finally { busy = false }
         }
@@ -105,17 +105,17 @@ fun EsimScreen(modifier: Modifier = Modifier) {
             busy = true
             initialized = false
             try {
-                status = "连接 ${backend.getReaderName()}..."
+                status = tr(lang,"连接")+" ${backend.getReaderName()}..."
                 LogCollector.d("EsimScreen", "connect ${backend.getReaderName()}")
                 manager.setBackend(backend)
                 withContext(Dispatchers.IO) { manager.init() }
                 readerName = backend.getReaderName()
                 initialized = true
-                status = "连接成功"
+                status = tr(lang,"连接成功")
                 refreshData()
             } catch (e: Throwable) {
-                status = "连接失败：${e.message}"
-                readerName = "未连接"
+                status = tr(lang,"连接失败")+"：${e.message}"
+                readerName = tr(lang,"未连接")
                 LogCollector.e("EsimScreen", "connect failed", e)
             } finally { busy = false }
         }
@@ -127,7 +127,7 @@ fun EsimScreen(modifier: Modifier = Modifier) {
             return
         }
         pendingUsbDevice = device
-        status = "正在请求 USB 权限：${device.productName ?: device.deviceName}"
+        status = tr(lang,"正在请求 USB 权限")+"：${device.productName ?: device.deviceName}"
         LogCollector.d("EsimScreen", "request USB permission ${device.deviceName}")
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         val pi = PendingIntent.getBroadcast(context, device.deviceId, Intent(usbPermissionAction), flags)
@@ -140,15 +140,15 @@ fun EsimScreen(modifier: Modifier = Modifier) {
             busy = true
             try {
                 val isEnabled = profile.state == "enabled"
-                status = if (isEnabled) "正在禁用 ${profile.iccid}..." else "正在启用 ${profile.iccid}..."
+                status = if (isEnabled) tr(lang,"正在禁用")+" ${profile.iccid}..." else tr(lang,"正在启用")+" ${profile.iccid}..."
                 val rc = withContext(Dispatchers.IO) {
                     if (isEnabled) manager.disableProfile(profile.iccid) else manager.enableProfile(profile.iccid)
                 }
                 LogCollector.d("EsimScreen", "switch profile rc=$rc iccid=${profile.iccid}")
-                status = if (rc == 0) "切卡完成" else "切卡返回码：$rc"
+                status = if (rc == 0) tr(lang,"切卡完成") else tr(lang,"切卡返回码")+"：$rc"
                 refreshData()
             } catch (e: Throwable) {
-                status = "切卡失败：${e.message}"
+                status = tr(lang,"切卡失败")+"：${e.message}"
                 LogCollector.e("EsimScreen", "switch failed", e)
             } finally { busy = false }
         }
@@ -158,13 +158,13 @@ fun EsimScreen(modifier: Modifier = Modifier) {
         scope.launch {
             busy = true
             try {
-                status = "正在重命名 ${profile.iccid}..."
+                status = tr(lang,"正在重命名")+" ${profile.iccid}..."
                 val rc = withContext(Dispatchers.IO) { manager.setNickname(profile.iccid, nickname) }
                 LogCollector.d("EsimScreen", "rename profile rc=$rc iccid=${profile.iccid} nickname=$nickname")
-                status = if (rc == 0) "重命名完成" else "重命名返回码：$rc"
+                status = if (rc == 0) tr(lang,"重命名完成") else tr(lang,"重命名返回码")+"：$rc"
                 refreshData()
             } catch (e: Throwable) {
-                status = "重命名失败：${e.message}"
+                status = tr(lang,"重命名失败")+"：${e.message}"
                 LogCollector.e("EsimScreen", "rename failed", e)
             } finally { busy = false }
         }
@@ -174,13 +174,13 @@ fun EsimScreen(modifier: Modifier = Modifier) {
         scope.launch {
             busy = true
             try {
-                status = "正在删除 ${profile.iccid}..."
+                status = tr(lang,"正在删除")+" ${profile.iccid}..."
                 val rc = withContext(Dispatchers.IO) { manager.deleteProfile(profile.iccid) }
                 LogCollector.d("EsimScreen", "delete profile rc=$rc iccid=${profile.iccid}")
-                status = if (rc == 0) "删除完成" else "删除返回码：$rc"
+                status = if (rc == 0) tr(lang,"删除完成") else tr(lang,"删除返回码")+"：$rc"
                 refreshData()
             } catch (e: Throwable) {
-                status = "删除失败：${e.message}"
+                status = tr(lang,"删除失败")+"：${e.message}"
                 LogCollector.e("EsimScreen", "delete failed", e)
             } finally { busy = false }
         }
@@ -190,7 +190,7 @@ fun EsimScreen(modifier: Modifier = Modifier) {
         scope.launch {
             busy = true
             try {
-                status = "正在认证 SM-DP+..."
+                status = tr(lang,"正在认证 SM-DP+...")
                 LogCollector.d("EsimScreen", "download auth smdp=$smdp matchingId=$matchingId")
                 val auth = withContext(Dispatchers.IO) { manager.authenticateProfile(smdp, matchingId) }
                 LogCollector.d("EsimScreen", "authenticate result=$auth")
@@ -198,17 +198,17 @@ fun EsimScreen(modifier: Modifier = Modifier) {
                 if (!authObj.optBoolean("success", false)) {
                     throw RuntimeException(authObj.optString("error", "authenticateClient failed"))
                 }
-                status = "认证成功，正在下载写入 Profile..."
+                status = tr(lang,"认证成功，正在下载写入 Profile...")
                 val dl = withContext(Dispatchers.IO) { manager.downloadProfile(confirmationCode) }
                 LogCollector.d("EsimScreen", "download result=$dl")
                 val dlObj = org.json.JSONObject(dl)
                 if (!dlObj.optBoolean("success", false)) {
                     throw RuntimeException(dlObj.optString("error", "download failed"))
                 }
-                status = "下载完成"
+                status = tr(lang,"下载完成")
                 refreshData()
             } catch (e: Throwable) {
-                status = "下载失败：${e.message}"
+                status = tr(lang,"下载失败")+"：${e.message}"
                 LogCollector.e("EsimScreen", "download failed", e)
                 runCatching { withContext(Dispatchers.IO) { manager.cancelSession() } }
             } finally { busy = false }
@@ -229,10 +229,10 @@ fun EsimScreen(modifier: Modifier = Modifier) {
                 val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
                 LogCollector.d("EsimScreen", "USB permission result granted=$granted device=${device?.deviceName}")
                 if (granted && device != null) {
-                    status = "USB 已授权，正在连接..."
+                    status = tr(lang,"USB 已授权，正在连接...")
                     connect(UsbCcReader(context, device))
                 } else {
-                    status = "USB 权限被拒绝"
+                    status = tr(lang,"USB 权限被拒绝")
                 }
             }
         }
@@ -260,11 +260,11 @@ fun EsimScreen(modifier: Modifier = Modifier) {
             TopAppBar(
                 title = {
                     Column {
-                        Text("eSIM 管理", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                        Text("读卡 · 下载 · Profile 管理", fontSize = 11.sp, color = textMuted)
+                        Text(L("eSIM 管理"), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        Text(L("读卡 · 下载 · Profile 管理"), fontSize = 11.sp, color = textMuted)
                     }
                 },
-                actions = { TextButton(onClick = { showLogs = true }) { Text("日志") } },
+                actions = { TextButton(onClick = { showLogs = true }) { Text(L("日志")) } },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = pageBg)
             )
         },
@@ -318,9 +318,9 @@ fun EsimScreen(modifier: Modifier = Modifier) {
                     textSecondary = textSecondary,
                     textMuted = textMuted,
                     borderColor = borderColor,
-                    title = "卡片信息",
-                    subtitle = if (eid.isBlank()) "尚未读取 EID" else eid,
-                    trailing = if (initialized) "已连接" else "未连接"
+                    title = L("卡片信息"),
+                    subtitle = if (eid.isBlank()) L("尚未读取 EID") else eid,
+                    trailing = if (initialized) L("已连接") else L("未连接")
                 ) {
                     addresses?.let {
                         if (it.defaultDpAddress.isNotBlank() || it.rootDsAddress.isNotBlank()) {
@@ -332,15 +332,13 @@ fun EsimScreen(modifier: Modifier = Modifier) {
                 }
             }
 
-
-
             item {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 2.dp)) {
                     Text("Profiles", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = textPrimary)
                     Spacer(Modifier.width(8.dp))
                     CountBadge("${profiles.size}")
                     Spacer(Modifier.weight(1f))
-                    TextButton(onClick = { refreshData() }, enabled = initialized && !busy) { Text("刷新") }
+                    TextButton(onClick = { refreshData() }, enabled = initialized && !busy) { Text(L("刷新")) }
                 }
             }
 
@@ -417,8 +415,8 @@ private fun EsimHeroCard(
                 HeroMetric("状态", if (initialized) "Ready" else "Idle", cardSoft, textMuted, textPrimary, Modifier.weight(1f))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(onClick = onDownload, enabled = initialized && !busy, shape = RoundedCornerShape(16.dp), modifier = Modifier.weight(1f).height(46.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF007AFF))) { Text("下载 Profile") }
-                OutlinedButton(onClick = onRefresh, enabled = initialized && !busy, shape = RoundedCornerShape(16.dp), modifier = Modifier.weight(1f).height(46.dp)) { Text("刷新") }
+                Button(onClick = onDownload, enabled = initialized && !busy, shape = RoundedCornerShape(16.dp), modifier = Modifier.weight(1f).height(46.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF007AFF))) { Text(L("下载 Profile")) }
+                OutlinedButton(onClick = onRefresh, enabled = initialized && !busy, shape = RoundedCornerShape(16.dp), modifier = Modifier.weight(1f).height(46.dp)) { Text(L("刷新")) }
             }
         }
     }
@@ -441,10 +439,10 @@ private fun EsimHeroCard(
 
 @Composable private fun ReaderPanel(cardBg: Color, cardSoft: Color, textPrimary: Color, textSecondary: Color, textMuted: Color, borderColor: Color, blueSoft: Color, usbDevices: List<UsbDevice>, busy: Boolean, onInternal: () -> Unit, onDetectUsb: () -> Unit, onUsb: (UsbDevice) -> Unit) {
     CardBlock(cardBg, borderColor) {
-        SectionTitle("读卡器", "选择内置 eSIM 或 USB 实体卡", textPrimary, textMuted)
+        SectionTitle(L("读卡器"), L("选择内置 eSIM 或 USB 实体卡"), textPrimary, textMuted)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            ReaderButton("内置 eSIM", "OMAPI", Color(0xFF007AFF), textSecondary, !busy, Modifier.weight(1f), onInternal)
-            ReaderButton("检测 USB", "CCID", Color(0xFF34C759), textSecondary, !busy, Modifier.weight(1f), onDetectUsb)
+            ReaderButton(L("内置 eSIM"), "OMAPI", Color(0xFF007AFF), textSecondary, !busy, Modifier.weight(1f), onInternal)
+            ReaderButton(L("检测 USB"), "CCID", Color(0xFF34C759), textSecondary, !busy, Modifier.weight(1f), onDetectUsb)
         }
         usbDevices.forEach { dev ->
             Row(
@@ -457,7 +455,7 @@ private fun EsimHeroCard(
                     Text(dev.productName ?: "USB Reader", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(dev.deviceName, fontSize = 11.sp, color = textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Text("连接", color = Color(0xFF007AFF), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(L("连接"), color = Color(0xFF007AFF), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             }
         }
     }
@@ -493,7 +491,7 @@ private fun EsimHeroCard(
 @Composable private fun EsimPill(text: String, color: Color) { Text(text, color = color, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.background(color.copy(alpha = .11f), RoundedCornerShape(999.dp)).padding(horizontal = 9.dp, vertical = 5.dp)) }
 
 @Composable private fun EmptyProfileCard(initialized: Boolean, cardBg: Color, textPrimary: Color, textMuted: Color, borderColor: Color) {
-    CardBlock(cardBg, borderColor) { Text(if (initialized) "暂无 Profile" else "请先连接读卡器", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = textPrimary); Text("连接后会显示 ICCID、运营商、状态和可用操作。", fontSize = 12.sp, color = textMuted) }
+    CardBlock(cardBg, borderColor) { Text(if (initialized) L("暂无 Profile") else L("请先连接读卡器"), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = textPrimary); Text(L("连接后会显示 ICCID、运营商、状态和可用操作。"), fontSize = 12.sp, color = textMuted) }
 }
 
 @Composable
@@ -536,24 +534,24 @@ private fun ProfileRow(
             val meta = listOf(match.operatorName, match.countryIso, match.plmn).filter { it.isNotBlank() }.joinToString(" · ")
             if (meta.isNotBlank()) Text(meta, fontSize = 13.sp, color = Color(0xFF007AFF), maxLines = 1, overflow = TextOverflow.Ellipsis)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                match.profileSizeBytes?.let { MiniInfo("容量", it.bytesToKbText(), cardSoft, textMuted, textPrimary, Modifier.weight(1f)) }
+                match.profileSizeBytes?.let { MiniInfo(L("容量"), it.bytesToKbText(), cardSoft, textMuted, textPrimary, Modifier.weight(1f)) }
                 if (match.rsp.isNotBlank()) MiniInfo("RSP", match.rsp, cardSoft, textMuted, textPrimary, Modifier.weight(1f))
                 if (match.apns.isNotEmpty()) MiniInfo("APN", match.apns.first().apn, cardSoft, textMuted, textPrimary, Modifier.weight(1f))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Button(onClick = onSwitch, enabled = !busy, shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f).height(42.dp), colors = ButtonDefaults.buttonColors(containerColor = if (enabled) Color(0xFF64748B) else Color(0xFF34C759))) { Text(if (enabled) "禁用" else "启用") }
-                OutlinedButton(onClick = { showRename = true }, enabled = !busy, shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f).height(42.dp)) { Text("重命名") }
-                OutlinedButton(onClick = { showDelete = true }, enabled = !busy, shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f).height(42.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF3B30))) { Text("删除") }
+                OutlinedButton(onClick = { showRename = true }, enabled = !busy, shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f).height(42.dp)) { Text(L("重命名")) }
+                OutlinedButton(onClick = { showDelete = true }, enabled = !busy, shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f).height(42.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF3B30))) { Text(L("删除")) }
             }
         }
     }
 
     if (showRename) {
         var nickname by remember { mutableStateOf(profile.nickname.ifBlank { profile.name }) }
-        AlertDialog(onDismissRequest = { showRename = false }, title = { Text("重命名 Profile") }, text = { OutlinedTextField(value = nickname, onValueChange = { nickname = it }, label = { Text("昵称") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }, confirmButton = { TextButton(onClick = { showRename = false; onRename(nickname.trim()) }, enabled = nickname.isNotBlank()) { Text("保存") } }, dismissButton = { TextButton(onClick = { showRename = false }) { Text("取消") } })
+        AlertDialog(onDismissRequest = { showRename = false }, title = { Text(L("重命名 Profile")) }, text = { OutlinedTextField(value = nickname, onValueChange = { nickname = it }, label = { Text(L("昵称")) }, singleLine = true, modifier = Modifier.fillMaxWidth()) }, confirmButton = { TextButton(onClick = { showRename = false; onRename(nickname.trim()) }, enabled = nickname.isNotBlank()) { Text(L("保存")) } }, dismissButton = { TextButton(onClick = { showRename = false }) { Text(L("取消")) } })
     }
     if (showDelete) {
-        AlertDialog(onDismissRequest = { showDelete = false }, title = { Text("删除 Profile？") }, text = { Text("将删除 $title。此操作不可恢复，请确认。") }, confirmButton = { TextButton(onClick = { showDelete = false; onDelete() }) { Text("删除", color = Color(0xFFFF3B30)) } }, dismissButton = { TextButton(onClick = { showDelete = false }) { Text("取消") } })
+        AlertDialog(onDismissRequest = { showDelete = false }, title = { Text(L("删除 Profile？")) }, text = { Text("将删除 $title。此操作不可恢复，请确认。") }, confirmButton = { TextButton(onClick = { showDelete = false; onDelete() }) { Text("删除", color = Color(0xFFFF3B30)) } }, dismissButton = { TextButton(onClick = { showDelete = false }) { Text(L("取消")) } })
     }
 }
 
@@ -589,22 +587,8 @@ private fun DownloadProfileDialog(
         showScanner = false
     }
 
-    val context = LocalContext.current
-    val galleryLauncher = rememberLauncherForActivityResult(
-        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        uri ?: return@rememberLauncherForActivityResult
-        try {
-            val image = InputImage.fromFilePath(context, uri)
-            BarcodeScanning.getClient().process(image)
-                .addOnSuccessListener { codes ->
-                    val value = codes.firstOrNull()?.rawValue
-                    if (!value.isNullOrBlank()) applyScanned(value)
-                }
-        } catch (_: Exception) {}
-    }
-
     val dark = LocalIsDark.current
+    val lang = LocalAppLanguage.current
     fun c(light: Color, darkColor: Color) = if (dark) darkColor else light
     val dialogBg = c(Color(0xFFF2F3F7), Color(0xFF1C1C1E))
     val fieldBg = c(Color.White, Color(0xFF2C2C2E))
@@ -633,28 +617,21 @@ private fun DownloadProfileDialog(
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("下载 Profile", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = textPrimary)
-                        Text("扫码或粘贴 LPA 激活码", fontSize = 12.sp, color = textSecondary)
+                        Text(L("下载 Profile"), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                        Text(L("扫码或粘贴 LPA 激活码"), fontSize = 12.sp, color = textSecondary)
                     }
-                    TextButton(onClick = onDismiss) { Text("取消") }
+                    TextButton(onClick = onDismiss) { Text(L("取消")) }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                    Button(
-                        onClick = { showScanner = true },
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.weight(1f).height(48.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF007AFF))
-                    ) { Text("扫码二维码") }
-                    OutlinedButton(
-                        onClick = { galleryLauncher.launch("image/*") },
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.weight(1f).height(48.dp)
-                    ) { Text("从相册选择") }
-                }
+                Button(
+                    onClick = { showScanner = true },
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF007AFF))
+                ) { Text(L("扫码二维码")) }
                 OutlinedTextField(
                     value = raw,
                     onValueChange = { raw = it; parseLpa(it) },
-                    label = { Text("LPA 激活码，可粘贴 LPA:1$...") },
+                    label = { Text(L("LPA 激活码，可粘贴 LPA:1$...")) },
                     minLines = 2,
                     shape = RoundedCornerShape(16.dp),
                     colors = fieldColors,
@@ -663,7 +640,7 @@ private fun DownloadProfileDialog(
                 OutlinedTextField(
                     value = smdp,
                     onValueChange = { smdp = it },
-                    label = { Text("SM-DP+ 地址") },
+                    label = { Text(L("SM-DP+ 地址")) },
                     singleLine = true,
                     shape = RoundedCornerShape(16.dp),
                     colors = fieldColors,
@@ -672,7 +649,7 @@ private fun DownloadProfileDialog(
                 OutlinedTextField(
                     value = matchingId,
                     onValueChange = { matchingId = it },
-                    label = { Text("Matching ID / 激活码") },
+                    label = { Text(L("Matching ID / 激活码")) },
                     singleLine = true,
                     shape = RoundedCornerShape(16.dp),
                     colors = fieldColors,
@@ -681,7 +658,7 @@ private fun DownloadProfileDialog(
                 OutlinedTextField(
                     value = confirmationCode,
                     onValueChange = { confirmationCode = it },
-                    label = { Text("确认码，可选") },
+                    label = { Text(L("确认码，可选")) },
                     singleLine = true,
                     shape = RoundedCornerShape(16.dp),
                     colors = fieldColors,
@@ -696,7 +673,7 @@ private fun DownloadProfileDialog(
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.fillMaxWidth().height(48.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF007AFF), disabledContainerColor = c(Color(0xFFE5E7EB), Color(0xFF2C2C2E)), disabledContentColor = textSecondary)
-                ) { Text("开始下载") }
+                ) { Text(L("开始下载")) }
             }
         }
     }
@@ -711,6 +688,7 @@ private fun DownloadProfileDialog(
 
 @Composable
 private fun LogViewerDialog(onDismiss: () -> Unit) {
+    val lang = LocalAppLanguage.current
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     var text by remember { mutableStateOf(LogCollector.all()) }
@@ -718,25 +696,25 @@ private fun LogViewerDialog(onDismiss: () -> Unit) {
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("eSIM 调试日志") },
+        title = { Text(L("eSIM 调试日志")) },
         text = {
             Column(Modifier.heightIn(max = 520.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    OutlinedButton(onClick = { text = LogCollector.all(); copied = false }) { Text("刷新") }
-                    OutlinedButton(onClick = { LogCollector.clear(); text = ""; copied = false }) { Text("清除") }
+                    OutlinedButton(onClick = { text = LogCollector.all(); copied = false }) { Text(L("刷新")) }
+                    OutlinedButton(onClick = { LogCollector.clear(); text = ""; copied = false }) { Text(L("清除")) }
                 }
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     OutlinedButton(
                         onClick = {
-                            clipboard.setText(AnnotatedString(text.ifBlank { "暂无日志" }))
+                            clipboard.setText(AnnotatedString(text.ifBlank { tr(lang, "暂无日志") }))
                             copied = true
                         },
                         modifier = Modifier.weight(1f)
                     ) { Text(if (copied) "已复制" else "复制") }
                     Button(
                         onClick = {
-                            val sendText = text.ifBlank { "暂无日志" }
+                            val sendText = text.ifBlank { tr(lang, "暂无日志") }
                             val intent = Intent(Intent.ACTION_SEND).apply {
                                 type = "text/plain"
                                 putExtra(Intent.EXTRA_TEXT, sendText)
@@ -748,11 +726,11 @@ private fun LogViewerDialog(onDismiss: () -> Unit) {
                             }
                         },
                         modifier = Modifier.weight(1f)
-                    ) { Text("分享文本") }
+                    ) { Text(L("分享文本")) }
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = text.ifBlank { "暂无日志" },
+                    text = text.ifBlank { tr(lang, "暂无日志") },
                     fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace,
                     lineHeight = 16.sp,
@@ -760,6 +738,6 @@ private fun LogViewerDialog(onDismiss: () -> Unit) {
                 )
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } }
+        confirmButton = { TextButton(onClick = onDismiss) { Text(L("关闭")) } }
     )
 }
