@@ -1610,7 +1610,7 @@ fun fakeEidForCard(r:PhoneNumberRecord):String{ val seed=(r.id+r.number).hashCod
                 // ── 套餐信息 ──
                 item{
                     SettingsSection(L("套餐信息")){
-                        IOSField(L("套餐周期（天）"),r.cycleDays.toString(),{v-> val d=v.filter{it.isDigit()}.toIntOrNull()?:30; r=r.copy(cycleDays=d)},L("30"))
+                        IOSField(L("套餐周期（天）"),r.cycleDays.toString(),{v-> val d=v.filter{it.isDigit()}.toIntOrNull()?:0; r=r.copy(cycleDays=d)},L(""))
                         IOSDividerLine()
                         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(7.dp)){
                             listOf(7,15,30).forEach{ d-> IOSChip(cycleText(editLang,d),r.cycleDays==d,Modifier.weight(1f)){ r=r.copy(cycleDays=d,expireDate=runCatching{LocalDate.parse(r.startDate).plusDays(d.toLong()).toString()}.getOrElse{LocalDate.now().plusDays(d.toLong()).toString()}) } }
@@ -1709,14 +1709,14 @@ fun fakeEidForCard(r:PhoneNumberRecord):String{ val seed=(r.id+r.number).hashCod
                 // ── 到期时间 ──
                 item{
                     SettingsSection(L("到期时间")){
-                        IOSInfoRow(L("套餐开始日期"),r.startDate.ifBlank{LocalDate.now().toString()})
+                        Text(L("套餐开始日期"),fontSize=12.sp,color=Color(0xFF8A94A6)); DateOnlyEditor(r.startDate.ifBlank{LocalDate.now().toString()}){r=r.copy(startDate=it)}
                         IOSDividerLine()
                         Text(L("套餐时长（从开始日期计算）"),fontSize=12.sp,color=Color(0xFF8A94A6))
                         IOSDividerLine()
                         IOSSwitchRow(L("长期保号"),r.longTerm){r=r.copy(longTerm=it)}
                         if(!r.longTerm){
                             IOSDividerLine()
-                            IOSInfoRow(L("精确到期日期"),r.expireDate)
+                            Text(L("精确到期日期"),fontSize=12.sp,color=Color(0xFF8A94A6)); DateOnlyEditor(r.expireDate){r=r.copy(expireDate=it)}
                             if(r.startDate.isNotBlank()){
                                 Text("${L("开始")}: ${r.startDate} → ${L("到期")}: ${r.expireDate}",fontSize=11.sp,color=Color(0xFF8A94A6))
                             }
