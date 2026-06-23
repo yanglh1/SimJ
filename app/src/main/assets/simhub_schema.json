@@ -1,0 +1,79 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/simhub-compatibility/schema.json",
+  "title": "SimHub eSIM Card Backup (Compatibility Schema)",
+  "description": "Describes the JSON export/import format used by the SimHub eSIM manager. The top-level document is a JSON ARRAY of card objects. Dates are ISO-8601 strings. This schema is a compatibility reference for third-party (e.g. Android) implementations; it is NOT an official SimHub specification.",
+  "type": "array",
+  "items": { "$ref": "#/definitions/ESIMCard" },
+  "definitions": {
+    "ESIMCard": {
+      "type": "object",
+      "description": "One eSIM/subscription card. Unknown keys should be ignored on import; missing keys fall back to the defaults listed below (mirrors the lenient decoder in the source app, so old backups stay importable).",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Stable card UUID. OPTIONAL: older backups omit it. On import a fresh UUID may be assigned to avoid collisions."
+        },
+        "carrier":     { "type": "string", "description": "Carrier / operator name. Default \"\"." },
+        "plan":        { "type": "string", "description": "Plan / package name. Default \"\"." },
+        "phoneNumber": { "type": "string", "description": "Phone number, may include a leading +<calling code>. Default \"\"." },
+        "countryCode": { "type": "string", "description": "ISO 3166-1 alpha-2 region code (e.g. \"CN\"). See country_map.json. Default \"\"." },
+        "countryName": { "type": "string", "description": "Localized/display country name. Default \"\"." },
+        "flag":        { "type": "string", "description": "Unicode flag emoji. Derivable from countryCode (see country_map.json). Default \"\\uD83C\\uDF10\" (globe)." },
+
+        "cardBackgroundAssetName": {
+          "type": ["string", "null"],
+          "description": "Name of the built-in per-country light-trail background asset (e.g. \"CardBackgroundUSLighttrail\"). Maps to an image in this pack via country_map.json -> cardBackgroundFile. Empty/absent = default material background."
+        },
+        "cardColorHex": {
+          "type": ["string", "null"],
+          "description": "Optional card tint color as a hex string (e.g. \"#1E88E5\"). Empty/absent = default material background."
+        },
+        "cardBackgroundImageData": {
+          "type": ["string", "null"],
+          "contentEncoding": "base64",
+          "description": "Optional user-supplied custom background image, base64-encoded (compressed JPEG/PNG bytes). Absent for most cards."
+        },
+
+        "carrierAppName":         { "type": ["string", "null"], "description": "Display name of the carrier's companion app." },
+        "carrierAppIconURLString":{ "type": ["string", "null"], "description": "URL to the carrier app icon." },
+        "carrierAppStoreURLString":{ "type": ["string", "null"], "description": "Store URL for the carrier app." },
+
+        "activationDate": { "type": "string", "format": "date-time", "description": "ISO-8601 activation date. Defaults to import time if absent." },
+        "expiryDate":     { "type": "string", "format": "date-time", "description": "ISO-8601 expiry date. Defaults to activationDate + 30 days if absent." },
+
+        "price":        { "type": "string", "description": "Human-readable recurring price text, e.g. \"99.00 CNY\". Default \"\"." },
+        "currencyCode": { "type": ["string", "null"], "description": "ISO 4217 currency code, e.g. \"CNY\". RMB->CNY and NTD->TWD are normalized." },
+        "cyclePaymentMinorUnits":  { "type": ["integer", "null"], "description": "Recurring charge in minor units (e.g. cents). 9900 = 99.00." },
+        "currentBalance":          { "type": ["string", "null"], "description": "Human-readable current balance text." },
+        "currentBalanceMinorUnits":{ "type": ["integer", "null"], "description": "Current balance in minor units." },
+
+        "websiteURL":       { "type": ["string", "null"], "description": "Top-up / management website." },
+        "transactionNotes": { "type": ["string", "null"], "description": "Free-text ledger; newline-separated entries." },
+        "customPrompt":     { "type": ["string", "null"], "description": "User reminder note." },
+        "tags":             { "type": ["array", "null"], "items": { "type": "string" }, "description": "Tag list. Stored internally as newline-joined text." },
+        "orderIndex":       { "type": ["integer", "null"], "description": "Manual sort order. Default 0." },
+
+        "smdpAddress":      { "type": "string", "description": "SM-DP+ server address for the eSIM profile. Default \"\"." },
+        "activationCode":   { "type": "string", "description": "eSIM activation/matching code. Default \"\"." },
+        "confirmationCode": { "type": ["string", "null"], "description": "Optional confirmation code. Combined as LPA:1$<smdp>$<activation>$<confirmation>." },
+        "eid":              { "type": "string", "description": "32-digit EID of the target device. Default \"\"." },
+
+        "createdAt": { "type": "string", "format": "date-time", "description": "ISO-8601 creation time. Defaults to import time." },
+        "updatedAt": { "type": ["string", "null"], "format": "date-time", "description": "ISO-8601 last-update time. Used for newest-wins sync." },
+
+        "isLongTerm":          { "type": "boolean", "description": "True for long-term / no fixed expiry plans. Default false." },
+        "renewDays":           { "type": "integer", "description": "Legacy renewal interval in days. Inferred from activation->expiry if absent." },
+        "renewalUnit":         { "type": ["string", "null"], "enum": ["days", "months", "years", null], "description": "Renewal cycle unit. Default \"days\"." },
+        "renewalIntervalValue":{ "type": ["integer", "null"], "description": "Renewal interval count in the given unit (>=1)." }
+      },
+      "required": [
+        "carrier", "plan", "phoneNumber", "countryCode", "countryName", "flag",
+        "activationDate", "expiryDate", "price",
+        "smdpAddress", "activationCode", "eid", "createdAt", "isLongTerm", "renewDays"
+      ],
+      "additionalProperties": true
+    }
+  }
+}

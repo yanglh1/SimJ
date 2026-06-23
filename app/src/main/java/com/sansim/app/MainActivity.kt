@@ -100,6 +100,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.core.content.FileProvider
 import com.sansim.app.esim.EsimScreen
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.Popup
 import kotlin.concurrent.thread
 import kotlin.math.roundToInt
 import com.sansim.app.update.UpdateInfo
@@ -142,11 +143,20 @@ object DataStore {
         return (0 until arr.length()).map{ val o=arr.getJSONObject(it)
             normalizeLongTerm(PhoneNumberRecord(
                 id=o.optString("id",UUID.randomUUID().toString()), countryCode=o.optString("countryCode","+86"), countryName=o.optString("countryName","中国"), flag=o.optString("flag","🇨🇳"), number=o.optString("number"), operator=o.optString("operator"), expireDate=o.optString("expireDate",LocalDate.now().plusDays(30).toString()), note=o.optString("note"),
-                balance=o.optString("balance"), eid=o.optString("eid"), smdp=o.optString("smdp"), activationCode=o.optString("activationCode"), startDate=o.optString("startDate",LocalDate.now().toString()), createdAt=o.optString("createdAt",LocalDate.now().toString()), activatedAt=o.optString("activatedAt"), longTerm=o.optBoolean("longTerm",false), cycleDays=o.optInt("cycleDays",30), signalStatus=o.optString("signalStatus","在线")
+                balance=o.optString("balance"), eid=o.optString("eid"), smdp=o.optString("smdp"), activationCode=o.optString("activationCode"), startDate=o.optString("startDate",LocalDate.now().toString()), createdAt=o.optString("createdAt",LocalDate.now().toString()), activatedAt=o.optString("activatedAt"), longTerm=o.optBoolean("longTerm",false), cycleDays=o.optInt("cycleDays",30), signalStatus=o.optString("signalStatus","在线"), tags=o.optString("tags",""), transactionNotes=o.optString("transactionNotes",""), customPrompt=o.optString("customPrompt",""), websiteURL=o.optString("websiteURL",""), cyclePaymentMinorUnits=o.optInt("cyclePaymentMinorUnits",0), currencyCode=o.optString("currencyCode",""), cardBackgroundAssetName=o.optString("cardBackgroundAssetName",""), cardColorHex=o.optString("cardColorHex","")
             ))
         }
     }
-    fun recordJson(r:PhoneNumberRecord)=JSONObject().put("id",r.id).put("countryCode",r.countryCode).put("countryName",r.countryName).put("flag",r.flag).put("number",r.number).put("operator",r.operator).put("expireDate",r.expireDate).put("note",r.note).put("balance",r.balance).put("eid",r.eid).put("smdp",r.smdp).put("activationCode",r.activationCode).put("startDate",r.startDate).put("createdAt",r.createdAt).put("activatedAt",r.activatedAt).put("longTerm",r.longTerm).put("cycleDays",r.cycleDays).put("signalStatus",r.signalStatus)
+    fun recordJson(r:PhoneNumberRecord)=JSONObject()
+        .put("id",r.id).put("countryCode",r.countryCode).put("countryName",r.countryName).put("flag",r.flag)
+        .put("number",r.number).put("operator",r.operator).put("expireDate",r.expireDate).put("note",r.note)
+        .put("balance",r.balance).put("eid",r.eid).put("smdp",r.smdp).put("activationCode",r.activationCode)
+        .put("startDate",r.startDate).put("createdAt",r.createdAt).put("activatedAt",r.activatedAt)
+        .put("longTerm",r.longTerm).put("cycleDays",r.cycleDays).put("signalStatus",r.signalStatus)
+        .put("tags",r.tags).put("transactionNotes",r.transactionNotes).put("customPrompt",r.customPrompt)
+        .put("websiteURL",r.websiteURL).put("cyclePaymentMinorUnits",r.cyclePaymentMinorUnits)
+        .put("currencyCode",r.currencyCode).put("cardBackgroundAssetName",r.cardBackgroundAssetName)
+        .put("cardColorHex",r.cardColorHex)
     fun saveRecords(ctx:Context,list:List<PhoneNumberRecord>){ val arr=JSONArray(); list.forEach{ arr.put(recordJson(it)) }; ctx.getSharedPreferences(PREF,0).edit().putString("records",arr.toString()).apply(); ReminderScheduler.schedule全部(ctx) }
 }
 
@@ -317,7 +327,7 @@ class MainActivity: ComponentActivity(){ private val req=registerForActivityResu
                                         val info = runCatching { kotlinx.coroutines.runBlocking { UpdateChecker.check(currentVersion) } }.getOrNull()
                                         if (info != null) { updateInfo = info }
                                     }
-                                },on={s->settings=s;DataStore.save设置(ctx,s); autoCloudSync(records,s)},onTraffic={trafficTarget=it},onDial={dial(ctx,it)},onExportJson={exportDialog="json" to exportRecordsJson(records,settings)},onExportCsv={exportDialog="csv" to exportRecordsCsv(records)},onImportText={text-> val (imported,importedSettings)=parseRecordsAndSettings(text); if(imported.isNotEmpty()){ records=imported; DataStore.saveRecords(ctx,records); if(importedSettings!=null){ settings=importedSettings; DataStore.save设置(ctx,settings) }; autoCloudSync(records,settings); toolMessage=tx("导入完成")+"：${records.size} "+tx("个号码")+(if(importedSettings!=null) " + "+tx("配置已恢复") else "") } else toolMessage=tx("导入失败：未识别 JSON/CSV 数据") })
+                                },on={s->settings=s;DataStore.save设置(ctx,s); autoCloudSync(records,s)},onTraffic={trafficTarget=it},onDial={dial(ctx,it)},onExportJson={exportDialog="json" to exportRecordsJson(records,settings)},onExportCsv={exportDialog="csv" to exportRecordsCsv(records)},onImportText={text-> val (imported,importedSettings)=parseRecordsAndSettings(text); if(imported.isNotEmpty()){ records=imported; DataStore.saveRecords(ctx,records); if(importedSettings!=null){ settings=importedSettings; DataStore.save设置(ctx,settings) }; autoCloudSync(records,settings); toolMessage=tx("导入完成")+"：${records.size} "+tx("个号码")+(if(importedSettings!=null) " + "+tx("配置已恢复") else "") } else toolMessage=tx("导入失败：未识别 JSON/CSV 数据") },onImportSimHub={imported->records=imported;DataStore.saveRecords(ctx,records);autoCloudSync(records,settings);toolMessage=tx("SimHub 导入完成")+"：${records.size} "+tx("个号码")})
                             }
                             "countries"->CountryPage()
                             "esim"->EsimScreen()
@@ -419,13 +429,16 @@ fun shareExportFile(ctx:Context,fileName:String,mime:String,content:String,title
 }
 
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable fun CompactSimCard(r:PhoneNumberRecord,on编辑:(PhoneNumberRecord)->Unit,onDel:(PhoneNumberRecord)->Unit,onTraffic:(PhoneNumberRecord)->Unit,onKeep:(PhoneNumberRecord,Int)->Unit,days:Long?,remindDays:Int,showFlag:Boolean=true,dark:Boolean=false){
     val progress=when{days==null->.35f; days<0->.04f; else->(days.coerceIn(0,120).toFloat()/120f).coerceIn(.08f,.98f)}
     var hidden by remember{ mutableStateOf(true) }
     var del by remember{ mutableStateOf(false) }
     var keep by remember{ mutableStateOf(false) }
+    var showMenu by remember{ mutableStateOf(false) }
     val cardBg=if(dark) Color(0xFF1E2430).copy(alpha=.85f) else Color.White.copy(alpha=.35f); val cardBorder=if(dark) Color(0xFF2A3040).copy(alpha=.60f) else Color.White.copy(alpha=.50f); val txtPrimary=if(dark) Color(0xFFE8EAED) else if(showFlag) Color.White else Color(0xFF111827); val txtSecondary=if(dark) Color(0xFF9AA0A6) else if(showFlag) Color.White.copy(alpha=.85f) else Color(0xFF6B7280); val txtBody=if(dark) Color(0xFFD1D5DB) else if(showFlag) Color.White.copy(alpha=.9f) else Color(0xFF374151)
-    Card(shape=RoundedCornerShape(24.dp),colors=CardDefaults.cardColors(containerColor=cardBg),elevation=CardDefaults.cardElevation(0.dp),modifier=Modifier.fillMaxWidth().height(150.dp).border(1.dp,cardBorder,RoundedCornerShape(24.dp))){
+    val clipboardManager = LocalClipboardManager.current
+    Card(shape=RoundedCornerShape(24.dp),colors=CardDefaults.cardColors(containerColor=cardBg),elevation=CardDefaults.cardElevation(0.dp),modifier=Modifier.fillMaxWidth().height(150.dp).border(1.dp,cardBorder,RoundedCornerShape(24.dp)).combinedClickable(onClick={},onLongClick={showMenu=true})){
         Box(Modifier.fillMaxSize()){
             // frosted glass shimmer
             val glass=if(dark) listOf(Color(0xFF1E2430).copy(alpha=.15f),Color(0xFF1E2430).copy(alpha=.06f),Color(0xFF1E2430).copy(alpha=.12f)) else listOf(Color.White.copy(alpha=.18f),Color.White.copy(alpha=.08f),Color.White.copy(alpha=.15f)); Box(Modifier.fillMaxSize().background(Brush.verticalGradient(glass)).clip(RoundedCornerShape(24.dp)))
@@ -458,10 +471,31 @@ fun shareExportFile(ctx:Context,fileName:String,mime:String,content:String,title
                 Row(verticalAlignment=Alignment.CenterVertically){Text("EID ${r.eid.ifBlank{fakeEidForCard(r)}}",fontSize=10.sp,color=if(dark) Color(0xFFB0B8C4) else txtSecondary,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.weight(1f)); Text(signalIcon(r.signalStatus)+" "+r.signalStatus,fontSize=10.sp,color=Color(0xFF16A34A),maxLines=1)}
                 Box(Modifier.fillMaxWidth(.80f).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color(0xFFE5E7EB))){Box(Modifier.fillMaxWidth(progress).fillMaxHeight().background(Color(0xFF22C55E)))}
                 Spacer(Modifier.height(2.dp))
-                Row(horizontalArrangement=Arrangement.spacedBy(18.dp)){
-                    CardIconAction("keep",Color(0xFF8B5CF6)){keep=true}
-                    CardIconAction("traffic",Color(0xFF007AFF)){onTraffic(r)}
-                    CardIconAction("edit",Color(0xFFFF9500)){on编辑(r)}
+
+            }
+            if(showMenu){
+                val mEdit=L("编辑"); val mCopy=L("复制号码"); val mKeep=L("保号"); val mTraffic=L("刷流量"); val mDel=L("删除")
+                Popup(alignment=Alignment.Center,onDismissRequest={showMenu=false}){
+                    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=0.35f)).clickable{showMenu=false},contentAlignment=Alignment.Center){
+                        Card(shape=RoundedCornerShape(14.dp),colors=CardDefaults.cardColors(containerColor=Color.White),elevation=CardDefaults.cardElevation(12.dp),modifier=Modifier.widthIn(min=220.dp,max=280.dp)){
+                            Column(Modifier.padding(vertical=4.dp)){
+                                data class MenuItem(val label:String, val isDel:Boolean=false, val action:()->Unit)
+                                val items=listOf(
+                                    MenuItem(mEdit){showMenu=false;on编辑(r)},
+                                    MenuItem(mCopy){showMenu=false;clipboardManager.setText(AnnotatedString(r.number))},
+                                    MenuItem(mKeep){showMenu=false;keep=true},
+                                    MenuItem(mTraffic){showMenu=false;onTraffic(r)},
+                                    MenuItem(mDel,isDel=true){showMenu=false;del=true},
+                                )
+                                items.forEachIndexed{idx,item->
+                                    Box(Modifier.fillMaxWidth().clickable{item.action()}.padding(horizontal=20.dp,vertical=13.dp)){
+                                        Text(item.label,fontSize=15.sp,fontWeight=FontWeight.Normal,color=if(item.isDel) Color(0xFFFF3B30) else Color(0xFF111827))
+                                    }
+                                    if(idx<items.size-1) Box(Modifier.padding(horizontal=20.dp).fillMaxWidth().height(0.5.dp).background(Color(0xFFE5E7EB)))
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -610,6 +644,7 @@ fun countryTheme(code:String,name:String):List<Color>{
     }
 }
 
+
 @Composable fun FlagArtPanel(r:PhoneNumberRecord,m:Modifier){
     val ctx = LocalContext.current
     val colors=countryTheme(r.countryCode,r.countryName)
@@ -621,8 +656,9 @@ fun countryTheme(code:String,name:String):List<Color>{
             r.countryName.contains("澳门") -> "MO"
             else -> ""
         }
-    val assetPath = if(iso.isBlank()) "" else "flag_backgrounds/${iso.lowercase()}.png"
-    val flagBitmap = rememberAssetBitmap(assetPath)
+    val assetJpg = if(iso.isBlank()) "" else "flag_backgrounds/${iso.lowercase()}.jpg"
+    val assetPng = if(iso.isBlank()) "" else "flag_backgrounds/${iso.lowercase()}.png"
+    val flagBitmap = rememberAssetBitmap(assetJpg) ?: rememberAssetBitmap(assetPng)
     Box(m.background(Brush.linearGradient(colors)),contentAlignment=Alignment.Center){
         if(flagBitmap != null){
             Image(bitmap=flagBitmap,contentDescription=r.countryName,contentScale=ContentScale.FillBounds,modifier=Modifier.fillMaxSize().graphicsLayer(alpha=.96f))
@@ -1302,10 +1338,12 @@ object OperatorLogoAssets {
 @Composable fun KeepChoice(text:String,selected:Boolean,onClick:()->Unit){ Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(if(selected) dk(Color(0xFF1C2333),Color(0xFFEAF3FF)) else dk(Color(0xFF1C1C1E),Color.White)).clickable{onClick()}.padding(14.dp),verticalAlignment=Alignment.CenterVertically){Text(if(selected)"●" else "○",color=Color(0xFF007AFF));Spacer(Modifier.width(10.dp));Text(text,fontSize=16.sp,fontWeight=if(selected)FontWeight.Bold else FontWeight.Normal)} }
 
 
-@Composable fun ToolsPage(ctx:Context,settings:App设置,records:List<PhoneNumberRecord>,onTraffic:(PhoneNumberRecord)->Unit,onDial:(PhoneNumberRecord)->Unit,onExportJson:()->Unit,onExportCsv:()->Unit,onImportText:(String)->Unit){
+@Composable fun ToolsPage(ctx:Context,settings:App设置,records:List<PhoneNumberRecord>,onTraffic:(PhoneNumberRecord)->Unit,onDial:(PhoneNumberRecord)->Unit,onExportJson:()->Unit,onExportCsv:()->Unit,onImportText:(String)->Unit,onImportSimHub:(List<PhoneNumberRecord>) ->Unit={_->}){
     var pickTraffic by remember{ mutableStateOf(false) }
     var pickDial by remember{ mutableStateOf(false) }
     var importDlg by remember{ mutableStateOf(false) }
+    var exportSimHub by remember{ mutableStateOf(false) }
+    var importSimHub by remember{ mutableStateOf(false) }
     var importText by remember{ mutableStateOf("") }
     Box(Modifier.fillMaxSize()){
         AppBackground(settings)
@@ -1317,6 +1355,12 @@ object OperatorLogoAssets {
                     ToolRow("export_json",L("导出 JSON"),L("生成完整 JSON 备份文本")){ onExportJson() }
                     ToolRow("export_csv",L("导出 CSV"),L("生成 CSV 表格文本")){ onExportCsv() }
                     ToolRow("import",L("导入数据"),L("粘贴 JSON 或 CSV 恢复号码列表")){ importDlg=true }
+            var exportSimHub by remember{ mutableStateOf(false) }
+            var importSimHub by remember{ mutableStateOf(false) }
+            ToolRow("export_json",L("导出 SimHub"),L("导出为 SimHub JSON 兼容格式")){ exportSimHub=true }
+            ToolRow("import",L("导入 SimHub"),L("从 SimHub JSON 文件导入号码")){ importSimHub=true }
+                    ToolRow("export_json",L("导出 SimHub"),L("导出为 SimHub JSON 兼容格式")){ exportSimHub=true }
+                    ToolRow("import",L("导入 SimHub"),L("从 SimHub JSON 文件导入号码")){ importSimHub=true }
                 }
             }
         }
@@ -1324,6 +1368,28 @@ object OperatorLogoAssets {
     if(pickTraffic) NumberPickerDialog(L("选择刷流量号码"),records,{pickTraffic=false}){ pickTraffic=false; onTraffic(it) }
     if(pickDial) NumberPickerDialog(L("选择拨号号码"),records,{pickDial=false}){ pickDial=false; onDial(it) }
     if(importDlg) IOSImportDialog(importText,{importText=it},{importDlg=false},{onImportText(importText);importDlg=false},ctx)
+    if(exportSimHub){
+        val json = com.sansim.app.util.SimHubCompat.exportToJson(records)
+        AlertDialog(onDismissRequest={exportSimHub=false},
+            title={Text(L("导出 SimHub JSON"))},
+            text={Text(L("已生成")+" ${records.size} "+L("个号码的 SimHub 兼容 JSON"))},
+            confirmButton={
+                Row{
+                    val exportTitle=L("导出 SimHub"); Button({shareExportFile(ctx,"simj-simhub-export.json","application/json",json,exportTitle)},colors=ButtonDefaults.buttonColors(containerColor=Color(0xFF007AFF))){Text(L("分享"))}
+                    Spacer(Modifier.width(8.dp))
+                    Button({exportSimHub=false},colors=ButtonDefaults.buttonColors(containerColor=Color(0xFF8E8E93))){Text(L("关闭"))}
+                }
+            })
+    }
+    val simHubImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()){ uri->
+        if(uri!=null){
+            val imported = com.sansim.app.util.SimHubCompat.importFromJson(ctx,uri)
+            if(imported.isNotEmpty()){
+                onImportSimHub(imported)
+            }
+        }
+    }
+    LaunchedEffect(importSimHub){ if(importSimHub){ simHubImportLauncher.launch("application/json"); importSimHub=false } }
 }
 
 @Composable fun ToolRow(iconType:String,title:String,sub:String,onClick:()->Unit){
@@ -1483,87 +1549,182 @@ fun fakeEidForCard(r:PhoneNumberRecord):String{ val seed=(r.id+r.number).hashCod
     var qrText by remember { mutableStateOf("") }
     var qrDlg by remember { mutableStateOf(false) }
     var qrInput by remember { mutableStateOf("") }
+    var showDel by remember { mutableStateOf(false) }
     val editLang = LocalAppLanguage.current
     val albumLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if(uri!=null) {
             qrText = tr(editLang,"已选择相册图片：")+"${uri}"
-            r = r.copy(note = (r.note.ifBlank { tr(editLang,"预付费 / 保号套餐") }) + "\n"+tr(editLang,"二维码图片：")+"${uri}")
         }
     }
+    // Cycle payment display
+    val paymentDisplay = if(r.cyclePaymentMinorUnits > 0 && r.currencyCode.isNotBlank()) {
+        val major = r.cyclePaymentMinorUnits / 100
+        val minor = r.cyclePaymentMinorUnits % 100
+        "${major}.${String.format("%02d",minor)} ${r.currencyCode}"
+    } else ""
+
     Box(Modifier.fillMaxSize().background(dk(Color(0xFF0B0F17),Color(0xFFF2F3F7)))){
         Column(Modifier.fillMaxSize()){
             val editStatusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+            // Header: 关闭 / 编辑 eSIM / 完成
             Row(Modifier.fillMaxWidth().padding(start=18.dp,end=18.dp,top=editStatusBarTop+8.dp,bottom=12.dp),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){
-                TextButton(onClick=onDismiss,modifier=Modifier.height(36.dp).clip(RoundedCornerShape(12.dp)).background(dk(Color(0xFF2C2C2E).copy(alpha=.90f),Color.White.copy(alpha=.90f))).border(.7.dp,dk(Color(0xFF38383A).copy(alpha=.75f),Color.White.copy(alpha=.75f)),RoundedCornerShape(12.dp)),contentPadding=PaddingValues(horizontal=12.dp,vertical=0.dp)){Text(L("取消"),color=Color(0xFF007AFF),fontWeight=FontWeight.SemiBold)}
+                TextButton(onClick=onDismiss,modifier=Modifier.height(36.dp).clip(RoundedCornerShape(12.dp)).background(dk(Color(0xFF2C2C2E).copy(alpha=.90f),Color.White.copy(alpha=.90f))).border(.7.dp,dk(Color(0xFF38383A).copy(alpha=.75f),Color.White.copy(alpha=.75f)),RoundedCornerShape(12.dp)),contentPadding=PaddingValues(horizontal=12.dp,vertical=0.dp)){Text(L("关闭"),color=Color(0xFF007AFF),fontWeight=FontWeight.SemiBold)}
                 Text(if(init.number.isBlank()) L("新增 eSIM") else L("编辑 eSIM"),fontSize=19.sp,fontWeight=FontWeight.Bold,color=dk(Color(0xFFE5E5E7),Color(0xFF111827)))
                 TextButton(onClick={onSave(r)},modifier=Modifier.height(36.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF007AFF)),contentPadding=PaddingValues(horizontal=14.dp,vertical=0.dp)){Text(L("完成"),fontWeight=FontWeight.Bold,color=Color.White)}
             }
             LazyColumn(Modifier.fillMaxSize().padding(horizontal=18.dp),verticalArrangement=Arrangement.spacedBy(14.dp)){
+
+                // ── 运营商 ──
                 item{
-                    SettingsSection(L("运营商与国家")){
-                        IOSValueRow(L("国家/地区"),"${r.flag} ${r.countryName} ${r.countryCode}"){ countryDlg=true }
+                    SettingsSection(L("运营商")){
+                        val currentIso = remember(r.countryCode, r.countryName){ Countries.list.firstOrNull{it.code==r.countryCode && it.name==r.countryName}?.iso ?: Countries.list.firstOrNull{it.code==r.countryCode}?.iso ?: r.countryName }
+                        Row(verticalAlignment=Alignment.CenterVertically){
+                            OperatorLogo44(r.operator.ifBlank{r.countryName}, currentIso)
+                            Spacer(Modifier.width(10.dp))
+                            Column{
+                                Text(r.operator.ifBlank{r.countryName},fontSize=17.sp,fontWeight=FontWeight.SemiBold,color=dk(Color(0xFFE5E5E7),Color(0xFF111827)))
+                                Text(L("卡片将优先显示这个 App 图标"),fontSize=11.sp,color=Color(0xFF8A94A6))
+                            }
+                        }
+                        IOSDividerLine()
+                        IOSValueRow(L("更换运营商预设"),L("也可以继续手动输入")){ countryDlg=true }
                         IOSDividerLine()
                         IOSField(L("运营商名称"),r.operator,{r=r.copy(operator=it)},L("如 AIS / Vodafone / 中国移动"))
-                        val currentIso = remember(r.countryCode, r.countryName){ Countries.list.firstOrNull{it.code==r.countryCode && it.name==r.countryName}?.iso ?: Countries.list.firstOrNull{it.code==r.countryCode}?.iso ?: r.countryName }
                         val detectedOperator = remember(r.number, currentIso){ guessOperator(r.number,currentIso) }
-                        val selectedOperator = r.operator.ifBlank { detectedOperator }
-                        Text(L("留空时会按号码和国家自动识别。"),fontSize=11.sp,color=Color(0xFF8A94A6))
-                        Text(L("当前识别")+"：${detectedOperator}",fontSize=11.sp,color=Color(0xFF8A94A6))
-                        Text(L("当前选择")+"：${selectedOperator}",fontSize=11.sp,color=Color(0xFF007AFF),fontWeight=FontWeight.SemiBold)
+                        if(detectedOperator.isNotBlank()){
+                            Text(L("当前识别")+": "+detectedOperator,fontSize=11.sp,color=Color(0xFF8A94A6))
+                        }
                         val suggestions = remember(currentIso){ OperatorDatabase.byCountry(currentIso).take(8) }
                         if(suggestions.isNotEmpty()){
                             Text(L("推荐运营商"),fontSize=13.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF6B7280),modifier=Modifier.padding(top=6.dp))
                             FlowRow(horizontalArrangement=Arrangement.spacedBy(10.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
                                 suggestions.forEach{ op ->
-                                    val active = selectedOperator.equals(op.carrierName,true)
+                                    val active = r.operator.equals(op.carrierName,true)
                                     IOSChip(op.carrierName,active){ r=r.copy(operator=op.carrierName) }
                                 }
                             }
                         }
                     }
                 }
+
+                // ── 套餐信息 ──
                 item{
-                    SettingsSection(L("号码与套餐")){
+                    SettingsSection(L("套餐信息")){
+                        IOSField(L("套餐周期（天）"),r.cycleDays.toString(),{v-> val d=v.filter{it.isDigit()}.toIntOrNull()?:30; r=r.copy(cycleDays=d)},L("30"))
+                        IOSDividerLine()
+                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(7.dp)){
+                            listOf(7,15,30).forEach{ d-> IOSChip(cycleText(editLang,d),r.cycleDays==d,Modifier.weight(1f)){ r=r.copy(cycleDays=d,expireDate=runCatching{LocalDate.parse(r.startDate).plusDays(d.toLong()).toString()}.getOrElse{LocalDate.now().plusDays(d.toLong()).toString()}) } }
+                        }
+                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(7.dp)){
+                            listOf(70,90,180,365).forEach{ d-> IOSChip(cycleText(editLang,d),r.cycleDays==d,Modifier.weight(1f)){ r=r.copy(cycleDays=d,expireDate=runCatching{LocalDate.parse(r.startDate).plusDays(d.toLong()).toString()}.getOrElse{LocalDate.now().plusDays(d.toLong()).toString()}) } }
+                        }
+                        IOSDividerLine()
+                        IOSField(L("每周期付款"),if(r.cyclePaymentMinorUnits>0) (r.cyclePaymentMinorUnits/100).toString() else "",{v-> val amt=v.filter{it.isDigit()}.toIntOrNull()?:0; r=r.copy(cyclePaymentMinorUnits=amt*100)},L("6"))
+                        IOSDividerLine()
+                        IOSField(L("货币代码"),r.currencyCode,{r=r.copy(currencyCode=it.uppercase())},L("HKD / CNY / USD"))
+                    }
+                }
+
+                // ── 电话号码 ──
+                item{
+                    SettingsSection(L("电话号码")){
                         IOSField(L("手机号码"),r.number,{r=r.copy(number=it.filter{c->c.isDigit()})},L("输入手机号码"))
-                        IOSDividerLine()
-                        IOSField(L("套餐余额"),r.balance,{r=r.copy(balance=it)},L("如 1 RMB / 4.50 USD / 2GB"))
-                        IOSDividerLine()
-                        IOSField(L("套餐备注"),r.note,{r=r.copy(note=it)},L("预付费 / 资费 / 套餐备注"),singleLine=false,minLines=2)
-                        IOSDividerLine()
-                        IOSField(L("信号状态"),r.signalStatus,{r=r.copy(signalStatus=it)},L("在线 / 离线 / 漫游 / 无服务"))
+                        if(r.number.isNotBlank()){
+                            IOSDividerLine()
+                            Text("${r.countryCode} · ${r.countryName}",fontSize=13.sp,color=Color(0xFF8A94A6))
+                        }
                     }
                 }
+
+                // ── 国家/地区 ──
                 item{
-                    SettingsSection(L("日期与周期")){
-                        Text(L("开始日期"),fontSize=12.sp,color=Color(0xFF8A94A6)); DateOnlyEditor(r.startDate){r=r.copy(startDate=it)}
-                        IOSDividerLine()
-                        Text(L("到期日期"),fontSize=12.sp,color=Color(0xFF8A94A6)); DateOnlyEditor(r.expireDate){r=r.copy(expireDate=it)}
-                        IOSDividerLine()
-                        Text(L("套餐周期"),fontSize=12.sp,color=Color(0xFF8A94A6))
-                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(7.dp)){ listOf(7,15,30).forEach{ d-> IOSChip(cycleText(LocalAppLanguage.current,d),r.cycleDays==d,Modifier.weight(1f)){ r=r.copy(cycleDays=d,expireDate=runCatching{LocalDate.parse(r.startDate).plusDays(d.toLong()).toString()}.getOrElse{LocalDate.now().plusDays(d.toLong()).toString()}) } } }
-                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(7.dp)){ listOf(90,180,365).forEach{ d-> IOSChip(cycleText(LocalAppLanguage.current,d),r.cycleDays==d,Modifier.weight(1f)){ r=r.copy(cycleDays=d,expireDate=runCatching{LocalDate.parse(r.startDate).plusDays(d.toLong()).toString()}.getOrElse{LocalDate.now().plusDays(d.toLong()).toString()}) } } }
-                        IOSDividerLine()
-                        IOSSwitchRow(L("长期号码"),r.longTerm){r=r.copy(longTerm=it)}
+                    SettingsSection(L("国家/地区")){
+                        IOSValueRow(L("国家/地区"),"${r.flag} ${r.countryName} ${r.countryCode}"){ countryDlg=true }
+                        Text(L("支持搜索名称、代码或区号"),fontSize=11.sp,color=Color(0xFF8A94A6))
                     }
                 }
+
+                // ── 卡片背景 & 配色（已隐藏，后续开放） ──
+
+                // ── 官网链接 ──
+                item{
+                    SettingsSection(L("官网链接")){
+                        IOSField(L("官网链接"),r.websiteURL,{r=r.copy(websiteURL=it)},L("例如：https://www.example.com"))
+                    }
+                }
+
+                // ── 当前余额 ──
+                item{
+                    SettingsSection(L("当前余额")){
+                        IOSField(L("余额"),r.balance,{r=r.copy(balance=it)},L("如 30.00 HKD / 100 CNY"))
+                    }
+                }
+
+                // ── 流水记录 ──
+                item{
+                    SettingsSection(L("流水记录")){
+                        IOSField(L("流水记录"),r.transactionNotes,{r=r.copy(transactionNotes=it)},L("在这里写充值、扣费或消费记录"),singleLine=false,minLines=3)
+                    }
+                }
+
+                // ── 自定义提示词 ──
+                item{
+                    SettingsSection(L("自定义提示词")){
+                        IOSField(L("自定义提示词"),r.customPrompt,{r=r.copy(customPrompt=it)},L("在这里写给自己的提醒或备注"),singleLine=false,minLines=3)
+                    }
+                }
+
+                // ── 标签 ──
+                item{
+                    SettingsSection(L("标签")){
+                        com.sansim.app.ui.TagSelector(r.tags){ r=r.copy(tags=it) }
+                    }
+                }
+
+                // ── eSIM 激活信息 ──
                 item{
                     SettingsSection(L("eSIM 激活信息")){
-                        IOSField(L("编辑 EID"),r.eid,{r=r.copy(eid=it)},L("输入 EID"))
-                        IOSDividerLine()
                         IOSField("SM-DP+",r.smdp,{r=r.copy(smdp=it)},L("服务器地址"))
                         IOSDividerLine()
                         IOSField(L("激活码"),r.activationCode,{r=r.copy(activationCode=it)},"Activation Code")
                         IOSDividerLine()
-                        Box(Modifier.fillMaxWidth().height(76.dp).clip(RoundedCornerShape(16.dp)).background(dk(Color(0xFF1C1C1E),Color(0xFFF4F6FA))).border(.7.dp,dk(Color(0xFF2C2C2E),Color(0xFFE5E7EB)),RoundedCornerShape(16.dp)).padding(12.dp)){
-                            Text(qrText.ifBlank { L("未填写激活信息")+"\n"+L("可扫描/粘贴二维码内容，或从相册选择二维码图片") },color=Color(0xFF6B7280),fontSize=13.sp,maxLines=3,overflow=TextOverflow.Ellipsis)
+                        IOSField(L("确认码（选填）"),"",{},L("Confirmation Code"))
+                        IOSDividerLine()
+                        Text(L("扫描二维码"),fontSize=14.sp,color=Color(0xFF007AFF),modifier=Modifier.clickable{qrDlg=true})
+                        Text(L("从相册读取二维码"),fontSize=14.sp,color=Color(0xFF007AFF),modifier=Modifier.clickable{albumLauncher.launch("image/*")})
+                        if(qrText.isNotBlank()){
+                            IOSDividerLine()
+                            Text("✅ "+L("激活信息已填写"),fontSize=13.sp,color=Color(0xFF34C759))
                         }
-                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                            IOSChip(L("扫描二维码"),false,Modifier.weight(1f)){ qrDlg=true }
-                            IOSChip(L("相册读取"),false,Modifier.weight(1f)){ albumLauncher.launch("image/*") }
-                        }
-                        Text(if(qrText.isBlank()) L("未填写激活信息") else "✅ "+L("激活信息已填写"),color=if(qrText.isBlank()) Color(0xFF8A94A6) else Color(0xFF34C759),fontSize=13.sp)
                     }
                 }
+
+                // ── EID 信息 ──
+                item{
+                    SettingsSection(L("EID 信息（选填）")){
+                        IOSField(L("EID"),r.eid,{r=r.copy(eid=it)},L("输入 32 位 EID（可选）"))
+                    }
+                }
+
+                // ── 到期时间 ──
+                item{
+                    SettingsSection(L("到期时间")){
+                        IOSInfoRow(L("套餐开始日期"),r.startDate.ifBlank{LocalDate.now().toString()})
+                        IOSDividerLine()
+                        Text(L("套餐时长（从开始日期计算）"),fontSize=12.sp,color=Color(0xFF8A94A6))
+                        IOSDividerLine()
+                        IOSSwitchRow(L("长期保号"),r.longTerm){r=r.copy(longTerm=it)}
+                        if(!r.longTerm){
+                            IOSDividerLine()
+                            IOSInfoRow(L("精确到期日期"),r.expireDate)
+                            if(r.startDate.isNotBlank()){
+                                Text("${L("开始")}: ${r.startDate} → ${L("到期")}: ${r.expireDate}",fontSize=11.sp,color=Color(0xFF8A94A6))
+                            }
+                        }
+                    }
+                }
+
+                // ── 记录信息 ──
                 item{
                     SettingsSection(L("记录信息")){
                         IOSInfoRow(L("创建时间"),r.createdAt.ifBlank{LocalDate.now().toString()})
@@ -1571,9 +1732,10 @@ fun fakeEidForCard(r:PhoneNumberRecord):String{ val seed=(r.id+r.number).hashCod
                         IOSInfoRow(L("激活时间"),r.activatedAt.ifBlank{L("未记录")})
                     }
                 }
-                item{ Spacer(Modifier.height(28.dp)) }
+
+                // ── 删除按钮 ──
+                item{ Spacer(Modifier.height(14.dp)) }
                 item{
-                    var showDel by remember{mutableStateOf(false)}
                     Button(onClick={showDel=true},modifier=Modifier.fillMaxWidth().height(50.dp),shape=RoundedCornerShape(14.dp),colors=ButtonDefaults.buttonColors(containerColor=Color(0xFFFF3B30)),contentPadding=PaddingValues(horizontal=16.dp)){
                         Text(L("删除"),fontSize=16.sp,fontWeight=FontWeight.SemiBold,color=Color.White)
                     }
@@ -1592,6 +1754,7 @@ fun fakeEidForCard(r:PhoneNumberRecord):String{ val seed=(r.id+r.number).hashCod
                         }
                     }
                 }
+                item{ Spacer(Modifier.height(80.dp)) }
             }
         }
     }
@@ -1599,13 +1762,12 @@ fun fakeEidForCard(r:PhoneNumberRecord):String{ val seed=(r.id+r.number).hashCod
         qrText=qrInput.ifBlank{tr(editLang,"已手动触发扫码入口")}
         if(qrInput.isNotBlank()){
             val parts=parseLpa(qrInput)
-            r=r.copy(smdp=parts.first.ifBlank{r.smdp},activationCode=parts.second.ifBlank{r.activationCode},note=(r.note.ifBlank{tr(editLang,"预付费 / 保号套餐")})+"\n"+tr(editLang,"二维码：")+qrInput)
+            r=r.copy(smdp=parts.first.ifBlank{r.smdp},activationCode=parts.second.ifBlank{r.activationCode})
         }
         qrDlg=false
     }
     if(countryDlg) CountryDialog({countryDlg=false}){c->r=r.copy(countryCode=c.code,countryName=c.name,flag=c.flag);countryDlg=false}
 }
-
 @Composable fun IOSDividerLine(){ Box(Modifier.fillMaxWidth().height(.7.dp).background(dk(Color(0xFF2C2C2E),Color(0xFFE5E7EB)))) }
 
 @Composable fun IOSInfoRow(title:String,value:String){
@@ -1768,6 +1930,10 @@ fun recordToJson(r:PhoneNumberRecord)=JSONObject()
     .put("balance",r.balance).put("eid",r.eid).put("smdp",r.smdp).put("activationCode",r.activationCode)
     .put("startDate",r.startDate).put("createdAt",r.createdAt).put("activatedAt",r.activatedAt)
     .put("longTerm",r.longTerm).put("cycleDays",r.cycleDays).put("signalStatus",r.signalStatus)
+    .put("tags",r.tags).put("transactionNotes",r.transactionNotes).put("customPrompt",r.customPrompt)
+    .put("websiteURL",r.websiteURL).put("cyclePaymentMinorUnits",r.cyclePaymentMinorUnits)
+    .put("currencyCode",r.currencyCode).put("cardBackgroundAssetName",r.cardBackgroundAssetName)
+    .put("cardColorHex",r.cardColorHex)
 
 fun cleanCloudApiKey(raw:String):String {
     val t=raw.trim()
@@ -1815,7 +1981,7 @@ fun cloudPost(s:App设置,path:String,body:String,lang:String="简体中文",onR
 }
 
 @OptIn(ExperimentalLayoutApi::class)
-@Composable fun 设置Page(ctx:Context,s:App设置,records:List<PhoneNumberRecord>,currentVersion:String="0.0.0",onUpdateCheck:(()->Unit)?=null,on:(App设置)->Unit,onTraffic:(PhoneNumberRecord)->Unit={},onDial:(PhoneNumberRecord)->Unit={},onExportJson:()->Unit={},onExportCsv:()->Unit={},onImportText:(String)->Unit={}){
+@Composable fun 设置Page(ctx:Context,s:App设置,records:List<PhoneNumberRecord>,currentVersion:String="0.0.0",onUpdateCheck:(()->Unit)?=null,on:(App设置)->Unit,onTraffic:(PhoneNumberRecord)->Unit={},onDial:(PhoneNumberRecord)->Unit={},onExportJson:()->Unit={},onExportCsv:()->Unit={},onImportText:(String)->Unit={},onImportSimHub:(List<PhoneNumberRecord>)->Unit={_->}){
     var st by remember{s.mutableState()}
     var cloudMsg by remember{ mutableStateOf("") }
     val pageLang = LocalAppLanguage.current
@@ -1928,9 +2094,36 @@ fun cloudPost(s:App设置,path:String,body:String,lang:String="简体中文",onR
             ToolRow("export_json",L("导出 JSON"),L("生成完整 JSON 备份文本")){ onExportJson() }
             ToolRow("export_csv",L("导出 CSV"),L("生成 CSV 表格文本")){ onExportCsv() }
             ToolRow("import",L("导入数据"),L("粘贴 JSON 或 CSV 恢复号码列表")){ importDlg=true }
+            var exportSimHub by remember{ mutableStateOf(false) }
+            var importSimHub by remember{ mutableStateOf(false) }
+            ToolRow("export_json",L("导出 SimHub"),L("导出为 SimHub JSON 兼容格式")){ exportSimHub=true }
+            ToolRow("import",L("导入 SimHub"),L("从 SimHub JSON 文件导入号码")){ importSimHub=true }
             if(pickTraffic) NumberPickerDialog(L("选择刷流量号码"),records,{pickTraffic=false}){ pickTraffic=false; onTraffic(it) }
             if(pickDial) NumberPickerDialog(L("选择拨号号码"),records,{pickDial=false}){ pickDial=false; onDial(it) }
             if(importDlg) IOSImportDialog(importText,{importText=it},{importDlg=false},{ onImportText(importText); importDlg=false },ctx)
+            if(exportSimHub){
+                val json = com.sansim.app.util.SimHubCompat.exportToJson(records)
+                val exportTitle=L("导出 SimHub")
+                AlertDialog(onDismissRequest={exportSimHub=false},
+                    title={Text(L("导出 SimHub JSON"))},
+                    text={Text(L("已生成")+" ${records.size} "+L("个号码的 SimHub 兼容 JSON"))},
+                    confirmButton={
+                        Row{
+                            Button({shareExportFile(ctx,"simj-simhub-export.json","application/json",json,exportTitle)},colors=ButtonDefaults.buttonColors(containerColor=Color(0xFF007AFF))){Text(L("分享"))}
+                            Spacer(Modifier.width(8.dp))
+                            Button({exportSimHub=false},colors=ButtonDefaults.buttonColors(containerColor=Color(0xFF8E8E93))){Text(L("关闭"))}
+                        }
+                    })
+            }
+            val simHubImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()){ uri->
+                if(uri!=null){
+                    val imported = com.sansim.app.util.SimHubCompat.importFromJson(ctx,uri)
+                    if(imported.isNotEmpty()){
+                        onImportSimHub(imported)
+                    }
+                }
+            }
+            LaunchedEffect(importSimHub){ if(importSimHub){ simHubImportLauncher.launch("application/json"); importSimHub=false } }
         }
         SettingsSection(L("语言 / Language")){
             Text(L("当前语言：")+st.language,fontSize=13.sp,color=Color(0xFF8A94A6))
