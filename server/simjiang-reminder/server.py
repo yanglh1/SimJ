@@ -166,7 +166,18 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith('/api/status'):
             conn=db(); users=conn.execute('select count(*) c from user_meta where enabled=1').fetchone()['c']; conn.close()
-            return self._json(200, {'ok':True,'service':'simjiang-reminder','version':'v2-multi-user','users':users,'time':int(time.time())})
+            return self._json(200, {'ok':True,'service':'simjiang-reminder','version':'v3-bidirectional-sync','users':users,'time':int(time.time())})
+        if self.path.startswith('/api/sync') or self.path.startswith('/api/pull'):
+            api_key=self._auth_key()
+            if not api_key: return self._json(401, {'ok':False,'error':'bad api key'})
+            conn=db(); row=conn.execute('select payload,updated_at from users where api_key=?',(api_key,)).fetchone(); conn.close()
+            if not row:
+                return self._json(404, {'ok':False,'error':'no cloud data','message':'当前 Key 暂无云端数据'})
+            try:
+                payload=json.loads(row['payload'])
+            except Exception:
+                return self._json(500, {'ok':False,'error':'bad stored payload'})
+            return self._json(200, {'ok':True,'payload':payload,'records':len(payload.get('records') or []),'updatedAt':row['updated_at'],'apiKeyTail':api_key[-6:]})
         return self._json(404, {'ok':False,'error':'not found'})
     def do_POST(self):
         if self.path.startswith('/api/register'):

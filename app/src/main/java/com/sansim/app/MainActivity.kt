@@ -327,7 +327,7 @@ class MainActivity: ComponentActivity(){ private val req=registerForActivityResu
                                         val info = runCatching { kotlinx.coroutines.runBlocking { UpdateChecker.check(currentVersion) } }.getOrNull()
                                         if (info != null) { updateInfo = info }
                                     }
-                                },on={s->settings=s;DataStore.save设置(ctx,s); autoCloudSync(records,s)},onTraffic={trafficTarget=it},onDial={dial(ctx,it)},onExportJson={exportDialog="json" to exportRecordsJson(records,settings)},onExportCsv={exportDialog="csv" to exportRecordsCsv(records)},onImportText={text-> val (imported,importedSettings)=parseRecordsAndSettings(text); if(imported.isNotEmpty()){ records=imported; DataStore.saveRecords(ctx,records); if(importedSettings!=null){ settings=importedSettings; DataStore.save设置(ctx,settings) }; autoCloudSync(records,settings); toolMessage=tx("导入完成")+"：${records.size} "+tx("个号码")+(if(importedSettings!=null) " + "+tx("配置已恢复") else "") } else toolMessage=tx("导入失败：未识别 JSON/CSV 数据") },onImportSimHub={imported->records=imported;DataStore.saveRecords(ctx,records);autoCloudSync(records,settings);toolMessage=tx("SimHub 导入完成")+"：${records.size} "+tx("个号码")})
+                                },on={s->settings=s;DataStore.save设置(ctx,s); autoCloudSync(records,s)},onTraffic={trafficTarget=it},onDial={dial(ctx,it)},onExportJson={exportDialog="json" to exportRecordsJson(records,settings)},onExportCsv={exportDialog="csv" to exportRecordsCsv(records)},onImportText={text-> val (imported,importedSettings)=parseRecordsAndSettings(text); if(imported.isNotEmpty()){ records=imported; DataStore.saveRecords(ctx,records); if(importedSettings!=null){ settings=importedSettings; DataStore.save设置(ctx,settings) }; autoCloudSync(records,settings); toolMessage=tx("导入完成")+"：${records.size} "+tx("个号码")+(if(importedSettings!=null) " + "+tx("配置已恢复") else "") } else toolMessage=tx("导入失败：未识别 JSON/CSV 数据") },onCloudRestore={imported,importedSettings-> if(imported.isNotEmpty()){ records=imported; DataStore.saveRecords(ctx,records); if(importedSettings!=null){ val keepKey=settings.cloudApiKey; val keepUrl=settings.cloudUrl; settings=importedSettings.copyMut{ cloudApiKey=keepKey; cloudUrl=keepUrl; cloudEnabled=true }; DataStore.save设置(ctx,settings) }; toolMessage=tx("云端恢复完成")+"：${records.size} "+tx("个号码") } },onImportSimHub={imported->records=imported;DataStore.saveRecords(ctx,records);autoCloudSync(records,settings);toolMessage=tx("SimHub 导入完成")+"：${records.size} "+tx("个号码")})
                             }
                             "countries"->CountryPage()
                             "esim"->EsimScreen()
@@ -1953,7 +1953,7 @@ fun cloudPayload(records:List<PhoneNumberRecord>,s:App设置):String{
     val arr=JSONArray(); records.forEach{arr.put(recordToJson(it))}
     return JSONObject().put("settings",settings).put("records",arr).toString()
 }
-fun cloudPost(s:App设置,path:String,body:String,lang:String="简体中文",onResult:(Boolean,String)->Unit){
+fun cloudRequest(s:App设置,path:String,method:String="POST",body:String="{}",lang:String="简体中文",onResult:(Boolean,String)->Unit){
     val apiKey=cleanCloudApiKey(s.cloudApiKey)
     val cloudUrl=cleanCloudUrl(if(s.cloudUrl.isBlank()) "https://ccs.ziranaa.top:16670" else s.cloudUrl)
     if(cloudUrl.isBlank()){onResult(false,tr(lang,"云端地址未填写"));return}
@@ -1961,14 +1961,12 @@ fun cloudPost(s:App设置,path:String,body:String,lang:String="简体中文",onR
     if(needsAuth&&apiKey.isBlank()){onResult(false,tr(lang,"API Key 未填写"));return}
     thread{
         val res=runCatching{
-            val base=cloudUrl
-            val c=(URL(base+path).openConnection() as HttpURLConnection)
-            if(path.startsWith("/api/status")){
-                c.requestMethod="GET"; c.connectTimeout=12000; c.readTimeout=10000
-            }else{
-                c.requestMethod="POST"; c.connectTimeout=12000; c.readTimeout=20000; c.doOutput=true
+            val c=(URL(cloudUrl+path).openConnection() as HttpURLConnection)
+            c.requestMethod=method.uppercase(); c.connectTimeout=12000; c.readTimeout=20000
+            if(needsAuth) c.setRequestProperty("X-API-Key",apiKey)
+            if(c.requestMethod=="POST"){
+                c.doOutput=true
                 c.setRequestProperty("Content-Type","application/json; charset=utf-8")
-                if(needsAuth) c.setRequestProperty("X-API-Key",apiKey)
                 c.outputStream.use{it.write(body.toByteArray(Charsets.UTF_8))}
             }
             val respCode=c.responseCode
@@ -1976,12 +1974,22 @@ fun cloudPost(s:App设置,path:String,body:String,lang:String="简体中文",onR
             val respBody=stream?.bufferedReader(Charsets.UTF_8)?.readText() ?: ""
             if(respCode !in 200..299) "HTTP $respCode: $respBody" else respBody
         }.fold({it},{tr(lang,"失败")+": ${it.javaClass.simpleName}: ${it.message}"})
-        Handler(Looper.getMainLooper()).post{onResult(!res.startsWith(tr(lang,"失败")),res)}
+        Handler(Looper.getMainLooper()).post{onResult(!res.startsWith(tr(lang,"失败")) && !res.startsWith("HTTP "),res)}
     }
+}
+fun cloudPost(s:App设置,path:String,body:String,lang:String="简体中文",onResult:(Boolean,String)->Unit)=cloudRequest(s,path,"POST",body,lang,onResult)
+fun cloudGet(s:App设置,path:String,lang:String="简体中文",onResult:(Boolean,String)->Unit)=cloudRequest(s,path,"GET","{}",lang,onResult)
+
+fun parseCloudPayloadResponse(text:String):Pair<List<PhoneNumberRecord>,App设置?>{
+    return runCatching{
+        val obj=JSONObject(text)
+        val payload=if(obj.has("payload")) obj.getJSONObject("payload") else obj
+        parseRecordsJson(payload.toString())
+    }.getOrElse{ Pair(emptyList(),null) }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
-@Composable fun 设置Page(ctx:Context,s:App设置,records:List<PhoneNumberRecord>,currentVersion:String="0.0.0",onUpdateCheck:(()->Unit)?=null,on:(App设置)->Unit,onTraffic:(PhoneNumberRecord)->Unit={},onDial:(PhoneNumberRecord)->Unit={},onExportJson:()->Unit={},onExportCsv:()->Unit={},onImportText:(String)->Unit={},onImportSimHub:(List<PhoneNumberRecord>)->Unit={_->}){
+@Composable fun 设置Page(ctx:Context,s:App设置,records:List<PhoneNumberRecord>,currentVersion:String="0.0.0",onUpdateCheck:(()->Unit)?=null,on:(App设置)->Unit,onTraffic:(PhoneNumberRecord)->Unit={},onDial:(PhoneNumberRecord)->Unit={},onExportJson:()->Unit={},onExportCsv:()->Unit={},onImportText:(String)->Unit={},onCloudRestore:(List<PhoneNumberRecord>,App设置?)->Unit={_,_->},onImportSimHub:(List<PhoneNumberRecord>)->Unit={_->}){
     var st by remember{s.mutableState()}
     var cloudMsg by remember{ mutableStateOf("") }
     val pageLang = LocalAppLanguage.current
@@ -2020,7 +2028,7 @@ fun cloudPost(s:App设置,path:String,body:String,lang:String="简体中文",onR
             Text(S("API Key说明"),fontSize=11.sp,color=Color(0xFF8A94A6),lineHeight=16.sp)
             Text(S("当前 API Key：")+if(st.cloudApiKey.isNotBlank()) cleanCloudApiKey(st.cloudApiKey) else S("未设置"),fontSize=12.sp,color=Color(0xFF8A94A6),lineHeight=17.sp)
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                Button({ cloudPost(st.copyMut{cloudUrl="https://ccs.ziranaa.top:16670"},"/api/status",cloudPayload(records,st)){ok,msg-> cloudMsg=if(ok) S("连接成功") else msg } },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("测试连接"))}
+                Button({ cloudGet(st.copyMut{cloudUrl="https://ccs.ziranaa.top:16670"},"/api/status"){ok,msg-> cloudMsg=if(ok) S("连接成功") else msg } },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("测试连接"))}
             }
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
                 Button({
@@ -2041,6 +2049,17 @@ fun cloudPost(s:App设置,path:String,body:String,lang:String="简体中文",onR
             }
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
                 Button({ cloudPost(st,"/api/sync",cloudPayload(records,st)){ok,msg-> cloudMsg=if(ok) S("同步成功") else msg } },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("同步到云端"))}
+                Button({
+                    cloudGet(st,"/api/sync"){ok,msg->
+                        if(ok){
+                            val (cloudRecords,cloudSettings)=parseCloudPayloadResponse(msg)
+                            if(cloudRecords.isNotEmpty()){
+                                onCloudRestore(cloudRecords,cloudSettings)
+                                cloudMsg=S("云端恢复成功")+"：${cloudRecords.size} "+S("个号码")
+                            }else cloudMsg=S("云端暂无数据")
+                        }else cloudMsg=msg
+                    }
+                },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("从云端恢复"))}
             }
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
                 IOSSwitchRow(S("云端 Telegram"),st.cloudTelegramEnabled){ st=st.copyMut{cloudTelegramEnabled=it}; on(st) }
