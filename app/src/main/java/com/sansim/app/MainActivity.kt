@@ -2046,6 +2046,7 @@ fun mergeCloudSettings(current:App设置,cloud:App设置?):App设置{
     var keyRegenerateConfirm by remember{ mutableStateOf(false) }
     val pageLang = LocalAppLanguage.current
     fun S(key:String)=tr(pageLang,key)
+    fun showCloudMsg(msg:String){ cloudMsg=msg; Toast.makeText(ctx,msg,Toast.LENGTH_SHORT).show() }
     val bgPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? -> if(uri!=null){ st=st.copyMut{backgroundUri=uri.toString()}; on(st) } }
     Column(Modifier.fillMaxSize().background(if(st.dark) Color(0xFF0B0F17) else Color(0xFFF2F3F7)).verticalScroll(rememberScrollState()).padding(horizontal=18.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(14.dp)){
         SettingsSection(L("外观")){
@@ -2080,15 +2081,15 @@ fun mergeCloudSettings(current:App设置,cloud:App设置?):App设置{
             Text(S("API Key说明"),fontSize=11.sp,color=Color(0xFF8A94A6),lineHeight=16.sp)
             Text(S("当前 API Key：")+if(st.cloudApiKey.isNotBlank()) cleanCloudApiKey(st.cloudApiKey) else S("未设置"),fontSize=12.sp,color=Color(0xFF8A94A6),lineHeight=17.sp)
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                Button({ cloudGet(st,"/api/status"){ok,msg-> cloudMsg=if(ok) S("连接成功") else msg } },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("测试连接"))}
+                Button({ cloudGet(st,"/api/status"){ok,msg-> showCloudMsg(if(ok) S("连接成功") else msg) } },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("测试连接"))}
             }
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
                 Button({
                     if(st.cloudApiKey.isNotBlank()) {
                         val clipboard=ctx.getSystemService(android.content.ClipboardManager::class.java)
                         clipboard.setPrimaryClip(android.content.ClipData.newPlainText("api key",cleanCloudApiKey(st.cloudApiKey)))
-                        cloudMsg=S("已复制 API Key")
-                    }else cloudMsg=S("请先生成或填写 API Key")
+                        showCloudMsg(S("已复制 API Key"))
+                    }else showCloudMsg(S("请先生成或填写 API Key"))
                 },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("复制 Key"))}
                 Button({
                     val existing=cleanCloudApiKey(st.cloudApiKey)
@@ -2101,10 +2102,10 @@ fun mergeCloudSettings(current:App设置,cloud:App设置?):App设置{
                         if(ok){
                             val cloudData=parseCloudPayloadResponse(msg)
                             if(cloudData.first.isNotEmpty()) cloudSyncChoice=cloudData
-                            else cloudPost(st,"/api/sync",cloudPayload(records,st)){ok2,msg2-> cloudMsg=if(ok2) S("同步成功") else msg2 }
+                            else cloudPost(st,"/api/sync",cloudPayload(records,st)){ok2,msg2-> showCloudMsg(if(ok2) S("同步成功") else msg2) }
                         }else if(msg.contains("404") || msg.contains("暂无") || msg.contains("no cloud data",true)){
-                            cloudPost(st,"/api/sync",cloudPayload(records,st)){ok2,msg2-> cloudMsg=if(ok2) S("同步成功") else msg2 }
-                        }else cloudMsg=msg
+                            cloudPost(st,"/api/sync",cloudPayload(records,st)){ok2,msg2-> showCloudMsg(if(ok2) S("同步成功") else msg2) }
+                        }else showCloudMsg(msg)
                     }
                 },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("同步到云端"))}
                 Button({
@@ -2113,9 +2114,9 @@ fun mergeCloudSettings(current:App设置,cloud:App设置?):App设置{
                             val cloudData=parseCloudPayloadResponse(msg)
                             if(cloudData.first.isNotEmpty()){
                                 if(records.isNotEmpty()) cloudRestoreChoice=cloudData
-                                else { val ns=mergeCloudSettings(st,cloudData.second); st=ns; onCloudRestore(cloudData.first,ns); cloudMsg=S("云端恢复成功")+"：${cloudData.first.size} "+S("个号码") }
-                            }else cloudMsg=S("云端暂无数据")
-                        }else cloudMsg=msg
+                                else { val ns=mergeCloudSettings(st,cloudData.second); st=ns; onCloudRestore(cloudData.first,ns); showCloudMsg(S("云端恢复成功")+"：${cloudData.first.size} "+S("个号码")) }
+                            }else showCloudMsg(S("云端暂无数据"))
+                        }else showCloudMsg(msg)
                     }
                 },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("从云端恢复"))}
             }
@@ -2149,10 +2150,10 @@ fun mergeCloudSettings(current:App设置,cloud:App设置?):App设置{
             IOSSwitchRow(S("通知一键发邮件"),st.emailQuickEnabled){ st=st.copyMut{emailQuickEnabled=it}; on(st) }
             Text(S("本地通知说明"),fontSize=11.sp,color=Color(0xFF8A94A6),lineHeight=16.sp)
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                Button({ cloudPost(st,"/api/test-telegram",cloudPayload(records,st)){ok,msg-> cloudMsg=if(ok) S("TG 测试已发送") else msg } },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("测试TG"))}
-                Button({ cloudPost(st,"/api/test-email",cloudPayload(records,st)){ok,msg-> cloudMsg=if(ok) S("邮件测试已发送") else msg } },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("测试邮件"))}
+                Button({ cloudPost(st,"/api/test-telegram",cloudPayload(records,st)){ok,msg-> showCloudMsg(if(ok) S("TG 测试已发送") else msg) } },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("测试TG"))}
+                Button({ cloudPost(st,"/api/test-email",cloudPayload(records,st)){ok,msg-> showCloudMsg(if(ok) S("邮件测试已发送") else msg) } },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("测试邮件"))}
             }
-            Button({ cloudPost(st,"/api/check-now",cloudPayload(records,st)){ok,msg-> cloudMsg=if(ok) S("已触发云端检查") else msg } },shape=RoundedCornerShape(14.dp),modifier=Modifier.fillMaxWidth()){Text(S("立即检查到期"))}
+            Button({ cloudPost(st,"/api/check-now",cloudPayload(records,st)){ok,msg-> showCloudMsg(if(ok) S("已触发云端检查") else msg) } },shape=RoundedCornerShape(14.dp),modifier=Modifier.fillMaxWidth()){Text(S("立即检查到期"))}
             Text(S("云端服务说明"),fontSize=12.sp,color=Color(0xFF8A94A6),lineHeight=17.sp)
             if(cloudMsg.isNotBlank()) Text(cloudMsg,fontSize=12.sp,color=Color(0xFF007AFF),lineHeight=17.sp)
         }
@@ -2241,9 +2242,9 @@ fun mergeCloudSettings(current:App设置,cloud:App设置?):App设置{
             if(ok){
                 try{
                     val r=JSONObject(msg); val k=r.optString("apiKey","")
-                    if(k.isNotBlank()){ st=st.copyMut{cloudApiKey=k; cloudEnabled=true}; on(st); cloudMsg="已生成新的 API Key，已保存" } else cloudMsg=msg
-                }catch(_:Exception){ cloudMsg=msg }
-            }else cloudMsg=msg
+                    if(k.isNotBlank()){ st=st.copyMut{cloudApiKey=k; cloudEnabled=true}; on(st); showCloudMsg("已生成新的 API Key，已保存") } else showCloudMsg(msg)
+                }catch(_:Exception){ showCloudMsg(msg) }
+            }else showCloudMsg(msg)
         }
     }
     if(keyGenerateConfirm){
@@ -2271,7 +2272,7 @@ fun mergeCloudSettings(current:App设置,cloud:App设置?):App设置{
                 keyExistingDialog=false
                 val clipboard=ctx.getSystemService(android.content.ClipboardManager::class.java)
                 clipboard.setPrimaryClip(android.content.ClipData.newPlainText("api key",cleanCloudApiKey(st.cloudApiKey)))
-                cloudMsg="已复制当前 API Key"
+                showCloudMsg("已复制当前 API Key")
             },
             onSecondary={keyExistingDialog=false; keyRegenerateConfirm=true}
         )
@@ -2293,7 +2294,7 @@ fun mergeCloudSettings(current:App设置,cloud:App设置?):App设置{
                 val merged=mergeRecords(cloudRecords,records)
                 val ns=mergeCloudSettings(st,cloudSettings)
                 st=ns
-                cloudPost(ns,"/api/sync",cloudPayload(merged,ns)){ok,msg-> cloudMsg=if(ok) "合并同步成功：${merged.size} 个号码" else msg }
+                cloudPost(ns,"/api/sync",cloudPayload(merged,ns)){ok,msg-> showCloudMsg(if(ok) "合并同步成功：${merged.size} 个号码" else msg) }
             },
             onSecondary={ cloudSyncChoice=null; cloudOverwriteConfirm=true }
         )
@@ -2301,7 +2302,7 @@ fun mergeCloudSettings(current:App设置,cloud:App设置?):App设置{
     if(cloudOverwriteConfirm){
         IOSConfirmDialog("确认覆盖云端？","将用当前手机的 ${records.size} 个号码替换云端数据。新版服务会在覆盖前自动备份旧云端数据；如果服务尚未升级，建议优先使用合并同步。",true,{cloudOverwriteConfirm=false},{
             cloudOverwriteConfirm=false
-            cloudPost(st,"/api/sync",cloudPayload(records,st)){ok,msg-> cloudMsg=if(ok) "覆盖云端完成：${records.size} 个号码" else msg }
+            cloudPost(st,"/api/sync",cloudPayload(records,st)){ok,msg-> showCloudMsg(if(ok) "覆盖云端完成：${records.size} 个号码" else msg) }
         })
     }
     cloudRestoreChoice?.let{ data->
@@ -2320,14 +2321,14 @@ fun mergeCloudSettings(current:App设置,cloud:App设置?):App设置{
                 st=ns
                 onCloudRestore(merged,ns)
                 cloudPost(ns,"/api/sync",cloudPayload(merged,ns)){_,_->}
-                cloudMsg="合并恢复完成：${merged.size} 个号码，配置已同步"
+                showCloudMsg("合并恢复完成：${merged.size} 个号码，配置已同步")
             },
             onSecondary={
                 cloudRestoreChoice=null
                 val ns=mergeCloudSettings(st,cloudSettings)
                 st=ns
                 onCloudRestore(cloudRecords,ns)
-                cloudMsg="云端恢复成功：${cloudRecords.size} 个号码，配置已同步"
+                showCloudMsg("云端恢复成功：${cloudRecords.size} 个号码，配置已同步")
             }
         )
     }
