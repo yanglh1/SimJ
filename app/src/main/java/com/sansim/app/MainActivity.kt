@@ -2034,6 +2034,10 @@ fun mergeCloudSettings(current:App设置,cloud:App设置?):App设置{
     return cloud.copyMut{ cloudApiKey=keepKey; cloudUrl=keepUrl; cloudEnabled=true }
 }
 
+fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)->Unit){
+    cloudPost(st,"/api/restore-backup",JSONObject().put("backupId",backupId).toString()){ok,msg->onResult(ok,msg)}
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable fun 设置Page(ctx:Context,s:App设置,records:List<PhoneNumberRecord>,currentVersion:String="0.0.0",onUpdateCheck:(()->Unit)?=null,on:(App设置)->Unit,onTraffic:(PhoneNumberRecord)->Unit={},onDial:(PhoneNumberRecord)->Unit={},onExportJson:()->Unit={},onExportCsv:()->Unit={},onImportText:(String)->Unit={},onCloudRestore:(List<PhoneNumberRecord>,App设置?)->Unit={_,_->},onImportSimHub:(List<PhoneNumberRecord>)->Unit={_->}){
     var st by remember{s.mutableState()}
@@ -2044,11 +2048,119 @@ fun mergeCloudSettings(current:App设置,cloud:App设置?):App设置{
     var keyGenerateConfirm by remember{ mutableStateOf(false) }
     var keyExistingDialog by remember{ mutableStateOf(false) }
     var keyRegenerateConfirm by remember{ mutableStateOf(false) }
+    var cloudOverviewKeyRecords by remember{ mutableStateOf(-1) }
+    var cloudOverviewUpdatedAt by remember{ mutableStateOf(0L) }
+    var cloudOverviewHasSettings by remember{ mutableStateOf(false) }
+    var cloudOverviewKeyTail by remember{ mutableStateOf("") }
+    var cloudBackups by remember{ mutableStateOf<List<JSONObject>>(emptyList()) }
+    var cloudBackupsTotal by remember{ mutableStateOf(0) }
+    var cloudBackupsLimit by remember{ mutableStateOf(20) }
+    var cloudBackupLoading by remember{ mutableStateOf(false) }
+    var cloudCleanKeepText by remember{ mutableStateOf("20") }
+    var showCloudCleanDialog by remember{ mutableStateOf(false) }
+    var showCloudBackupRestoreConfirm by remember{ mutableStateOf<JSONObject?>(null) }
+    var showCloudBackupDetailId by remember{ mutableStateOf<Int?>(null) }
+    var cloudBackupDetailLoading by remember{ mutableStateOf(false) }
+    var cloudBackupDetailBackup by remember{ mutableStateOf<JSONObject?>(null) }
+    var cloudBackupDetailSummary by remember{ mutableStateOf<JSONObject?>(null) }
     val pageLang = LocalAppLanguage.current
     fun S(key:String)=tr(pageLang,key)
     fun showCloudMsg(msg:String){ cloudMsg=msg; Toast.makeText(ctx,msg,Toast.LENGTH_SHORT).show() }
+    fun loadCloudOverview(){
+        cloudGet(st,"/api/key-info"){ok,msg->
+            if(ok){
+                try{
+                    val r=JSONObject(msg)
+                    cloudOverviewKeyRecords=r.optInt("records",-1)
+                    cloudOverviewUpdatedAt=r.optLong("updatedAt",0)*1000L
+                    cloudOverviewHasSettings=r.optBoolean("hasSettings",false)
+                    cloudOverviewKeyTail=r.optString("apiKeyTail","")
+                }catch(_:Exception){}
+            }else{
+                cloudGet(st,"/api/meta"){ok2,msg2->
+                    if(ok2){
+                        try{
+                            val r=JSONObject(msg2)
+                            cloudOverviewKeyRecords=r.optInt("records",-1)
+                            cloudOverviewUpdatedAt=r.optLong("updatedAt",0)*1000L
+                            cloudOverviewHasSettings=r.optBoolean("hasSettings",false)
+                            cloudOverviewKeyTail=r.optString("apiKeyTail","")
+                        }catch(_:Exception){}
+                    }
+                }
+            }
+        }
+    }
+    fun loadCloudBackups(limit:Int=cloudBackupsLimit){
+        if(cleanCloudApiKey(st.cloudApiKey).isBlank()){
+            cloudBackups=emptyList(); cloudBackupsTotal=0; cloudBackupsLimit=limit
+            return
+        }
+        cloudBackupLoading=true
+        cloudBackupsLimit=limit
+        cloudGet(st,"/api/backups?limit=$limit"){ok,msg->
+            cloudBackupLoading=false
+            if(ok){
+                try{
+                    val r=JSONObject(msg)
+                    cloudBackupsTotal=r.optInt("total",0)
+                    val arr=r.optJSONArray("backups") ?: JSONArray()
+                    val list=mutableListOf<JSONObject>()
+                    for(i in 0 until arr.length()) list.add(arr.getJSONObject(i))
+                    cloudBackups=list
+                }catch(_:Exception){}
+            }else showCloudMsg(msg)
+        }
+    }
+    fun loadCloudBackupDetail(bid:Int){
+        if(bid<=0) return
+        showCloudBackupDetailId=bid
+        cloudBackupDetailLoading=true
+        cloudBackupDetailBackup=null
+        cloudBackupDetailSummary=null
+        cloudGet(st,"/api/backups/$bid"){ok,msg->
+            cloudBackupDetailLoading=false
+            if(ok){
+                try{
+                    val r=JSONObject(msg)
+                    cloudBackupDetailBackup=r.optJSONObject("backup")
+                    cloudBackupDetailSummary=r.optJSONObject("summary")
+                }catch(_:Exception){}
+            }else showCloudMsg(msg)
+        }
+    }
+    fun restoreCloudBackup(item:JSONObject){
+        val bid=item.optInt("id",0)
+        if(bid<=0){ showCloudMsg("备份 ID 无效"); return }
+        restoreCloudBackupById(st,bid){ok,msg->
+            if(ok){
+                try{
+                    cloudGet(st,"/api/sync"){ok2,msg2->
+                        if(ok2){
+                            val (cloudRecords,cloudSettings)=parseCloudPayloadResponse(msg2)
+                            if(cloudRecords.isNotEmpty()){
+                                val ns=mergeCloudSettings(st,cloudSettings)
+                                st=ns
+                                onCloudRestore(cloudRecords,ns)
+                                showCloudMsg("已恢复指定备份：${cloudRecords.size} 个号码，配置已同步")
+                            }else showCloudMsg("已恢复指定备份")
+                        }else showCloudMsg("已恢复指定备份")
+                        loadCloudOverview()
+                        loadCloudBackups()
+                    }
+                }catch(_:Exception){
+                    showCloudMsg("已恢复指定备份")
+                    loadCloudOverview()
+                    loadCloudBackups()
+                }
+            }else showCloudMsg(msg)
+        }
+    }
     val bgPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? -> if(uri!=null){ st=st.copyMut{backgroundUri=uri.toString()}; on(st) } }
     Column(Modifier.fillMaxSize().background(if(st.dark) Color(0xFF0B0F17) else Color(0xFFF2F3F7)).verticalScroll(rememberScrollState()).padding(horizontal=18.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(14.dp)){
+    LaunchedEffect(Unit){
+        loadCloudOverview()
+    }
         SettingsSection(L("外观")){
             IOSSwitchRow(L("深色模式"),st.dark){ st=st.copyMut{dark=it}; on(st) }
             IOSSwitchRow(L("显示首页卡片国旗"),st.showFlag){ st=st.copyMut{showFlag=it}; on(st) }
@@ -2081,7 +2193,14 @@ fun mergeCloudSettings(current:App设置,cloud:App设置?):App设置{
             Text(S("API Key说明"),fontSize=11.sp,color=Color(0xFF8A94A6),lineHeight=16.sp)
             Text(S("当前 API Key：")+if(st.cloudApiKey.isNotBlank()) cleanCloudApiKey(st.cloudApiKey) else S("未设置"),fontSize=12.sp,color=Color(0xFF8A94A6),lineHeight=17.sp)
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                Button({ cloudGet(st,"/api/status"){ok,msg-> showCloudMsg(if(ok) S("连接成功") else msg) } },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("测试连接"))}
+                Button({
+                    cloudGet(st,"/api/key-info"){ok,msg->
+                        if(ok){
+                            showCloudMsg("云端 Key 有效")
+                            loadCloudOverview()
+                        }else showCloudMsg(if(msg.isBlank()) S("连接失败") else msg)
+                    }
+                },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("测试连接"))}
             }
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
                 Button({
@@ -2102,9 +2221,9 @@ fun mergeCloudSettings(current:App设置,cloud:App设置?):App设置{
                         if(ok){
                             val cloudData=parseCloudPayloadResponse(msg)
                             if(cloudData.first.isNotEmpty()) cloudSyncChoice=cloudData
-                            else cloudPost(st,"/api/sync",cloudPayload(records,st)){ok2,msg2-> showCloudMsg(if(ok2) S("同步成功") else msg2) }
+                            else cloudPost(st,"/api/sync",cloudPayload(records,st)){ok2,msg2-> showCloudMsg(if(ok2) S("同步成功") else msg2); if(ok2) loadCloudOverview() }
                         }else if(msg.contains("404") || msg.contains("暂无") || msg.contains("no cloud data",true)){
-                            cloudPost(st,"/api/sync",cloudPayload(records,st)){ok2,msg2-> showCloudMsg(if(ok2) S("同步成功") else msg2) }
+                            cloudPost(st,"/api/sync",cloudPayload(records,st)){ok2,msg2-> showCloudMsg(if(ok2) S("同步成功") else msg2); if(ok2) loadCloudOverview() }
                         }else showCloudMsg(msg)
                     }
                 },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("同步到云端"))}
@@ -2159,6 +2278,52 @@ fun mergeCloudSettings(current:App设置,cloud:App设置?):App设置{
         }
 
 
+        SettingsSection("云端数据与备份"){
+            if(cleanCloudApiKey(st.cloudApiKey).isBlank()){
+                Text("未设置 API Key，无法查看云端数据状态。",fontSize=12.sp,color=Color(0xFF8A94A6),lineHeight=17.sp)
+            }else{
+                Text("当前 Key：${cloudOverviewKeyTail.ifBlank { "..." }}",fontSize=12.sp,color=Color(0xFF374151))
+                Text("云端号码：${if(cloudOverviewKeyRecords>=0) cloudOverviewKeyRecords.toString() else "-"}",fontSize=13.sp,color=Color(0xFF374151))
+                Text("云端配置：${if(cloudOverviewHasSettings) "已同步" else "未同步"}",fontSize=13.sp,color=Color(0xFF374151))
+                Text("上次同步：${if(cloudOverviewUpdatedAt>0) java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(cloudOverviewUpdatedAt)) else "-"}",fontSize=13.sp,color=Color(0xFF374151))
+                if(cloudMsg.isNotBlank()) Text(cloudMsg,fontSize=12.sp,color=Color(0xFF007AFF),lineHeight=17.sp)
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                    Button({ loadCloudOverview() },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){ Text("刷新状态") }
+                    Button({ loadCloudBackups() },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){ Text(if(cloudBackupLoading) "加载中..." else "查看备份") }
+                    if(cloudBackupsTotal>cloudBackups.size){
+                        Button({ loadCloudBackups(cloudBackupsLimit+20) },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){ Text("加载更多") }
+                    }
+                }
+                if(cloudBackupsTotal>0){
+                    Text("云端备份共 ${cloudBackupsTotal} 条，当前显示 ${cloudBackups.size} 条",fontSize=12.sp,color=Color(0xFF8A94A6),lineHeight=17.sp)
+                }
+                if(cloudBackups.isNotEmpty()){
+                    Text("最近云端备份",fontSize=13.sp,color=Color(0xFF8A94A6))
+                    cloudBackups.forEach{ item ->
+                        val rid=item.optInt("id",0)
+                        val reason=item.optString("reason","")
+                        val recordsCount=item.optInt("records_count",0)
+                        val ts=item.optLong("created_at",0)*1000L
+                        val timeText=if(ts>0) java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(ts)) else "-"
+                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).border(0.6.dp,Color(0xFFE5E7EB),RoundedCornerShape(12.dp)).clickable{ showCloudBackupRestoreConfirm=item }.padding(horizontal=12.dp,vertical=10.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
+                            Column(Modifier.weight(1f)){
+                                Text("$reason  ·  ${recordsCount}条",fontSize=14.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF111827),maxLines=1,overflow=TextOverflow.Ellipsis)
+                                Text("$timeText  ·  ID $rid",fontSize=12.sp,color=Color(0xFF8A94A6))
+                            }
+                            Row(horizontalArrangement=Arrangement.spacedBy(10.dp),verticalAlignment=Alignment.CenterVertically){
+                                Text("详情",fontSize=13.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF007AFF),modifier=Modifier.clickable{ loadCloudBackupDetail(rid) })
+                                Text("恢复",fontSize=13.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF007AFF))
+                            }
+                        }
+                    }
+                }else if(cloudBackupLoading.not()){
+                    Text("暂无云端备份记录",fontSize=12.sp,color=Color(0xFF8A94A6),lineHeight=17.sp)
+                }
+Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                    Button({ showCloudCleanDialog=true },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){ Text("清理旧备份") }
+                }
+            }
+        }
         SettingsSection(L("工具")){
             var pickTraffic by remember { mutableStateOf(false) }
             var pickDial by remember { mutableStateOf(false) }
@@ -2294,7 +2459,7 @@ fun mergeCloudSettings(current:App设置,cloud:App设置?):App设置{
                 val merged=mergeRecords(cloudRecords,records)
                 val ns=mergeCloudSettings(st,cloudSettings)
                 st=ns
-                cloudPost(ns,"/api/sync",cloudPayload(merged,ns)){ok,msg-> showCloudMsg(if(ok) "合并同步成功：${merged.size} 个号码" else msg) }
+                cloudPost(ns,"/api/sync",cloudPayload(merged,ns)){ok,msg-> showCloudMsg(if(ok) "合并同步成功：${merged.size} 个号码" else msg); if(ok) loadCloudOverview() }
             },
             onSecondary={ cloudSyncChoice=null; cloudOverwriteConfirm=true }
         )
@@ -2302,8 +2467,90 @@ fun mergeCloudSettings(current:App设置,cloud:App设置?):App设置{
     if(cloudOverwriteConfirm){
         IOSConfirmDialog("确认覆盖云端？","将用当前手机的 ${records.size} 个号码替换云端数据。新版服务会在覆盖前自动备份旧云端数据；如果服务尚未升级，建议优先使用合并同步。",true,{cloudOverwriteConfirm=false},{
             cloudOverwriteConfirm=false
-            cloudPost(st,"/api/sync",cloudPayload(records,st)){ok,msg-> showCloudMsg(if(ok) "覆盖云端完成：${records.size} 个号码" else msg) }
+            cloudPost(st,"/api/sync",cloudPayload(records,st)){ok,msg-> showCloudMsg(if(ok) "覆盖云端完成：${records.size} 个号码" else msg); if(ok) loadCloudOverview() }
         })
+    }
+    showCloudBackupRestoreConfirm?.let{ item ->
+        val bid=item.optInt("id",0)
+        val reason=item.optString("reason","")
+        val cnt=item.optInt("records_count",0)
+        IOSConfirmDialog("恢复该备份？","将使用备份 $bid（$reason，${cnt}条）恢复当前云端数据。恢复前会自动备份当前数据。",false,{showCloudBackupRestoreConfirm=null},{
+            showCloudBackupRestoreConfirm=null
+            restoreCloudBackup(item)
+        })
+    }
+    showCloudBackupDetailId?.let{ bid ->
+        Dialog(onDismissRequest={showCloudBackupDetailId=null; cloudBackupDetailBackup=null; cloudBackupDetailSummary=null}){
+            Surface(shape=RoundedCornerShape(24.dp),color=Color(0xFFF2F3F7),tonalElevation=0.dp,modifier=Modifier.fillMaxWidth()){
+                Column(Modifier.padding(18.dp),verticalArrangement=Arrangement.spacedBy(12.dp),horizontalAlignment=Alignment.CenterHorizontally){
+                    Text("备份详情",fontSize=20.sp,fontWeight=FontWeight.Bold,color=Color(0xFF111827),textAlign=androidx.compose.ui.text.style.TextAlign.Center)
+                    if(cloudBackupDetailLoading){
+                        Text("加载中...",fontSize=13.sp,color=Color(0xFF8A94A6))
+                    }else{
+                        val b=cloudBackupDetailBackup
+                        val sum=cloudBackupDetailSummary
+                        if(b==null){
+                            Text("未读取到备份信息",fontSize=13.sp,color=Color(0xFF8A94A6))
+                        }else{
+                            val reason=b.optString("reason","")
+                            val cnt=b.optInt("records_count",0)
+                            val ts=b.optLong("created_at",0)*1000L
+                            val timeText=if(ts>0) java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(ts)) else "-"
+                            Text("ID：${b.optInt("id",0)}",fontSize=13.sp,color=Color(0xFF374151))
+                            Text("类型：$reason",fontSize=13.sp,color=Color(0xFF374151))
+                            Text("号码数：$cnt",fontSize=13.sp,color=Color(0xFF374151))
+                            Text("时间：$timeText",fontSize=13.sp,color=Color(0xFF374151))
+                            if(sum!=null){
+                                val keys=sum.optJSONArray("settingsKeys")
+                                if(keys!=null && keys.length()>0){
+                                    Text("配置字段",fontSize=13.sp,color=Color(0xFF8A94A6))
+                                    Text((0 until keys.length()).joinToString(", "){ keys.optString(it) },fontSize=12.sp,color=Color(0xFF374151),lineHeight=17.sp)
+                                }
+                                val samples=sum.optJSONArray("recordSamples")
+                                if(samples!=null && samples.length()>0){
+                                    Text("号码摘要",fontSize=13.sp,color=Color(0xFF8A94A6))
+                                    for(i in 0 until samples.length()){
+                                        val r=samples.getJSONObject(i)
+                                        Text("${r.optString("countryCode","")} ${"*".repeat(0)}${r.optString("number","")}  ${r.optString("operator","")}  ${r.optString("expireDate","")}",fontSize=12.sp,color=Color(0xFF374151))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)){
+                        Box(Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(16.dp)).background(Color.White).clickable{showCloudBackupDetailId=null; cloudBackupDetailBackup=null; cloudBackupDetailSummary=null},contentAlignment=Alignment.Center){Text("关闭",fontSize=16.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF007AFF))}
+                        Box(Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(16.dp)).background(Color(0xFF007AFF)).clickable{
+                            showCloudBackupDetailId=null
+                            cloudBackupDetailBackup?.let{ showCloudBackupRestoreConfirm=it }
+                        },contentAlignment=Alignment.Center){Text("恢复该备份",fontSize=16.sp,fontWeight=FontWeight.SemiBold,color=Color.White)}
+                    }
+                }
+            }
+        }
+    }
+    if(showCloudCleanDialog){
+        Dialog(onDismissRequest={showCloudCleanDialog=false}){
+            Surface(shape=RoundedCornerShape(24.dp),color=Color(0xFFF2F3F7),tonalElevation=0.dp,modifier=Modifier.fillMaxWidth()){
+                Column(Modifier.padding(18.dp),verticalArrangement=Arrangement.spacedBy(14.dp),horizontalAlignment=Alignment.CenterHorizontally){
+                    Text("清理旧备份",fontSize=20.sp,fontWeight=FontWeight.Bold,color=Color(0xFF111827),textAlign=androidx.compose.ui.text.style.TextAlign.Center)
+                    Text("只保留最近 N 条备份。设置为 0 将清空当前 Key 的全部备份。",fontSize=14.sp,color=Color(0xFF6B7280),lineHeight=20.sp,textAlign=androidx.compose.ui.text.style.TextAlign.Center)
+                    OutlinedTextField(value=cloudCleanKeepText,onValueChange={cloudCleanKeepText=it.filter{ch->ch.isDigit()}},modifier=Modifier.fillMaxWidth(),singleLine=true,label={Text("保留条数")})
+                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)){
+                        Box(Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(16.dp)).background(Color.White).clickable{showCloudCleanDialog=false},contentAlignment=Alignment.Center){Text("取消",fontSize=16.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF007AFF))}
+                        Box(Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(16.dp)).background(Color(0xFF007AFF)).clickable{
+                            showCloudCleanDialog=false
+                            val keep=cloudCleanKeepText.toIntOrNull()?:20
+                            cloudPost(st,"/api/backups/clear",JSONObject().put("keep",keep).toString()){ok,msg->
+                                if(ok){
+                                    showCloudMsg("已清理旧备份")
+                                    loadCloudBackups()
+                                }else showCloudMsg(msg)
+                            }
+                        },contentAlignment=Alignment.Center){Text("确认清理",fontSize=16.sp,fontWeight=FontWeight.SemiBold,color=Color.White)}
+                    }
+                }
+            }
+        }
     }
     cloudRestoreChoice?.let{ data->
         val cloudRecords=data.first; val cloudSettings=data.second
