@@ -15,7 +15,7 @@ data class UpdateInfo(
 
 object UpdateChecker {
     private const val REPO_OWNER = "yanglh1"
-    private const val REPO_NAME = "simjiang"
+    private const val REPO_NAME = "SimJ"
 
     suspend fun check(currentVersion: String): UpdateInfo? = withContext(Dispatchers.IO) {
         runCatching {
@@ -50,17 +50,26 @@ object UpdateChecker {
         }.getOrNull()
     }
 
+    private data class VersionParts(val nums: List<Int>, val pre: Boolean)
+
+    private fun parseVersion(v: String): VersionParts {
+        val clean = v.removePrefix("v").trim()
+        val pre = clean.contains("-pre", ignoreCase = true)
+        val nums = Regex("\\d+").findAll(clean.substringBefore('-')).map { it.value.toIntOrNull() ?: 0 }.toList()
+        return VersionParts(nums, pre)
+    }
+
     private fun isNewer(remote: String, local: String): Boolean {
-        val r = remote.split(".").mapNotNull { it.toIntOrNull() }
-        val l = local.split(".").mapNotNull { it.toIntOrNull() }
-        val len = maxOf(r.size, l.size)
+        val r = parseVersion(remote)
+        val l = parseVersion(local)
+        val len = maxOf(r.nums.size, l.nums.size)
         for (i in 0 until len) {
-            val rv = r.getOrElse(i) { 0 }
-            val lv = l.getOrElse(i) { 0 }
+            val rv = r.nums.getOrElse(i) { 0 }
+            val lv = l.nums.getOrElse(i) { 0 }
             if (rv > lv) return true
             if (rv < lv) return false
         }
-        return false
+        // Same numeric version: stable is newer than pre-release, same channel is not newer.
+        return l.pre && !r.pre
     }
 }
-
