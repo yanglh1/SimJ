@@ -61,6 +61,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -106,6 +107,8 @@ import kotlin.math.roundToInt
 import com.sansim.app.update.UpdateInfo
 import com.sansim.app.update.UpdateChecker
 import com.sansim.app.update.UpdateDialog
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 
 val LocalIsDark = compositionLocalOf { false }
 @Composable private fun dk(dark: Color, light: Color): Color = if(LocalIsDark.current) dark else light
@@ -140,10 +143,10 @@ object DataStore {
     }
     fun loadRecords(ctx:Context):List<PhoneNumberRecord>{
         val arr=JSONArray(ctx.getSharedPreferences(PREF,0).getString("records","[]"))
-        return (0 until arr.length()).map{ val o=arr.getJSONObject(it)
+        return (0 until arr.length()).mapIndexed{ idx,it-> val o=arr.getJSONObject(it)
             normalizeLongTerm(PhoneNumberRecord(
                 id=o.optString("id",UUID.randomUUID().toString()), countryCode=o.optString("countryCode","+86"), countryName=o.optString("countryName","中国"), flag=o.optString("flag","🇨🇳"), number=o.optString("number"), operator=o.optString("operator"), expireDate=o.optString("expireDate",LocalDate.now().plusDays(30).toString()), note=o.optString("note"),
-                balance=o.optString("balance"), eid=o.optString("eid"), smdp=o.optString("smdp"), activationCode=o.optString("activationCode"), startDate=o.optString("startDate",LocalDate.now().toString()), createdAt=o.optString("createdAt",LocalDate.now().toString()), activatedAt=o.optString("activatedAt"), longTerm=o.optBoolean("longTerm",false), cycleDays=o.optInt("cycleDays",30), signalStatus=o.optString("signalStatus","在线"), tags=o.optString("tags",""), transactionNotes=o.optString("transactionNotes",""), customPrompt=o.optString("customPrompt",""), websiteURL=o.optString("websiteURL",""), cyclePaymentMinorUnits=o.optInt("cyclePaymentMinorUnits",0), currencyCode=o.optString("currencyCode",""), cardBackgroundAssetName=o.optString("cardBackgroundAssetName",""), cardColorHex=o.optString("cardColorHex","")
+                balance=o.optString("balance"), eid=o.optString("eid"), smdp=o.optString("smdp"), activationCode=o.optString("activationCode"), startDate=o.optString("startDate",LocalDate.now().toString()), createdAt=o.optString("createdAt",LocalDate.now().toString()), activatedAt=o.optString("activatedAt"), longTerm=o.optBoolean("longTerm",false), cycleDays=o.optInt("cycleDays",30), signalStatus=o.optString("signalStatus","在线"), tags=o.optString("tags",""), transactionNotes=o.optString("transactionNotes",""), customPrompt=o.optString("customPrompt",""), websiteURL=o.optString("websiteURL",""), cyclePaymentMinorUnits=o.optInt("cyclePaymentMinorUnits",0), currencyCode=o.optString("currencyCode",""), cardBackgroundAssetName=o.optString("cardBackgroundAssetName",""), cardColorHex=o.optString("cardColorHex",""), sortOrder=o.optInt("sortOrder",(idx+1)*10)
             ))
         }
     }
@@ -156,7 +159,7 @@ object DataStore {
         .put("tags",r.tags).put("transactionNotes",r.transactionNotes).put("customPrompt",r.customPrompt)
         .put("websiteURL",r.websiteURL).put("cyclePaymentMinorUnits",r.cyclePaymentMinorUnits)
         .put("currencyCode",r.currencyCode).put("cardBackgroundAssetName",r.cardBackgroundAssetName)
-        .put("cardColorHex",r.cardColorHex)
+        .put("cardColorHex",r.cardColorHex).put("sortOrder",r.sortOrder)
     fun saveRecords(ctx:Context,list:List<PhoneNumberRecord>){ val arr=JSONArray(); list.forEach{ arr.put(recordJson(it)) }; ctx.getSharedPreferences(PREF,0).edit().putString("records",arr.toString()).apply(); ReminderScheduler.schedule全部(ctx) }
 }
 
@@ -267,7 +270,7 @@ class MainActivity: ComponentActivity(){ private val req=registerForActivityResu
     var toolMessage by remember{ mutableStateOf<String?>(null) }
     var exportDialog by remember{ mutableStateOf<Pair<String,String>?>(null) }
     var filter by remember{ mutableStateOf("全部") }
-    var sortMode by remember{ mutableStateOf("到期近") }
+    var sortMode by remember{ mutableStateOf("自定义") }
     var search by remember{ mutableStateOf("") }
     var updateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
     val currentVersion = try { ctx.packageManager.getPackageInfo(ctx.packageName,0).versionName ?: "0.0.0" } catch(_:Exception) { "0.0.0" }
@@ -286,6 +289,15 @@ class MainActivity: ComponentActivity(){ private val req=registerForActivityResu
             }
         }
     }
+    fun normalizeSortOrder(list:List<PhoneNumberRecord>)=list.mapIndexed{idx,r->r.copy(sortOrder=(idx+1)*10)}
+    fun reorderRecordsById(orderedIds:List<String>){
+        val map=records.associateBy{it.id}
+        val ordered=orderedIds.mapNotNull{map[it]}
+        val rest=records.filterNot{orderedIds.contains(it.id)}
+        records=normalizeSortOrder(ordered+rest)
+        DataStore.saveRecords(ctx,records)
+        autoCloudSync(records,settings)
+    }
     MaterialTheme(colors){
     LaunchedEffect(Unit) {
         val now = System.currentTimeMillis()
@@ -302,7 +314,8 @@ class MainActivity: ComponentActivity(){ private val req=registerForActivityResu
             if(editing && edit!=null){
                 Full编辑Screen(init=edit!!, onDismiss={edit=null}, onSave={r->
                     val c=Countries.list.firstOrNull{it.code==r.countryCode && it.name==r.countryName} ?: Countries.list.firstOrNull{it.code==r.countryCode} ?: Countries.list.first()
-                    val nr=r.copy(countryCode=c.code,countryName=c.name,flag=c.flag,operator= if(r.operator.isBlank()) guessOperator(r.number,c.iso) else r.operator, createdAt=if(r.createdAt.isBlank()) LocalDate.now().toString() else r.createdAt, activatedAt=if(r.activatedAt.isBlank() && (r.smdp.isNotBlank() || r.activationCode.isNotBlank())) LocalDate.now().toString() else r.activatedAt)
+                    val nr0=r.copy(countryCode=c.code,countryName=c.name,flag=c.flag,operator= if(r.operator.isBlank()) guessOperator(r.number,c.iso) else r.operator, createdAt=if(r.createdAt.isBlank()) LocalDate.now().toString() else r.createdAt, activatedAt=if(r.activatedAt.isBlank() && (r.smdp.isNotBlank() || r.activationCode.isNotBlank())) LocalDate.now().toString() else r.activatedAt)
+                    val nr=if(records.any{it.id==nr0.id}) nr0 else nr0.copy(sortOrder=((records.maxOfOrNull{it.sortOrder}?:0)+10).coerceAtLeast((records.size+1)*10))
                     records= if(records.any{it.id==nr.id}) records.map{if(it.id==nr.id)nr else it} else records+nr
                     DataStore.saveRecords(ctx,records); autoCloudSync(records,settings)
                     edit=null
@@ -325,7 +338,7 @@ class MainActivity: ComponentActivity(){ private val req=registerForActivityResu
                     }
                     Box(Modifier.weight(1f).fillMaxWidth()){
                         when(screen){
-                            "home"->Home(ctx,records,settings,search,filter,sortMode,{filter=it},{sortMode=if(sortMode=="到期近") "到期远" else "到期近"},{edit=PhoneNumberRecord()},{edit=it},{r->records=records.filter{it.id!=r.id};DataStore.saveRecords(ctx,records); autoCloudSync(records,settings)},{dial(ctx,it)},{trafficTarget=it},{r,months->val nr=r.copy(expireDate=(runCatching{LocalDate.parse(r.expireDate)}.getOrNull()?:LocalDate.now()).plusDays(months.toLong()).toString());records=records.map{if(it.id==r.id)nr else it};DataStore.saveRecords(ctx,records); autoCloudSync(records,settings)})
+                            "home"->Home(ctx,records,settings,search,filter,sortMode,{filter=it},{sortMode=when(sortMode){"自定义"->"到期近";"到期近"->"到期远";else->"自定义"}},{edit=PhoneNumberRecord()},{edit=it},{r->records=records.filter{it.id!=r.id};DataStore.saveRecords(ctx,records); autoCloudSync(records,settings)},{dial(ctx,it)},{trafficTarget=it},{r,months->val nr=r.copy(expireDate=(runCatching{LocalDate.parse(r.expireDate)}.getOrNull()?:LocalDate.now()).plusDays(months.toLong()).toString());records=records.map{if(it.id==r.id)nr else it};DataStore.saveRecords(ctx,records); autoCloudSync(records,settings)},{ids->reorderRecordsById(ids)})
                             "keep"->KeepPage(records,{r,m-> val nr=r.copy(expireDate=(runCatching{LocalDate.parse(r.expireDate)}.getOrNull()?:LocalDate.now()).plusDays(m.toLong()).toString()); records=records.map{if(it.id==r.id)nr else it}; DataStore.saveRecords(ctx,records); autoCloudSync(records,settings)})
                             "tools"->ToolsPage(ctx,settings,records,{trafficTarget=it},{dial(ctx,it)},{ exportDialog="json" to exportRecordsJson(records,settings) },{ exportDialog="csv" to exportRecordsCsv(records) },{ text-> val (imported,importedSettings)=parseRecordsAndSettings(text); if(imported.isNotEmpty()){ records=imported; DataStore.saveRecords(ctx,records); if(importedSettings!=null){ settings=importedSettings; DataStore.save设置(ctx,settings) }; autoCloudSync(records,settings); toolMessage=tx("导入完成")+"：${records.size} "+tx("个号码")+(if(importedSettings!=null) " + "+tx("配置已恢复") else "") } else toolMessage=tx("导入失败：未识别 JSON/CSV 数据") })
                             "settings"->{
@@ -425,7 +438,7 @@ fun shareExportFile(ctx:Context,fileName:String,mime:String,content:String,title
     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically){
         Row(horizontalArrangement=Arrangement.spacedBy(6.dp),verticalAlignment=Alignment.CenterVertically){
             FilterTool("≡",filter,Modifier.height(30.dp)){onFilter(when(filter){"全部"->"正常";"正常"->"即将到期";"即将到期"->"已过期";else->"全部"})}
-            FilterTool("↕",if(sortMode=="到期近") L("近到远") else L("远到近"),Modifier.height(30.dp)){onSort()}
+            FilterTool("↕",when(sortMode){"自定义"->"自定义";"到期近"->L("近到远");else->L("远到近")},Modifier.height(30.dp)){onSort()}
             Box(Modifier.height(30.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF93C5FD).copy(alpha=.25f)).clickable{}.padding(horizontal=10.dp),contentAlignment=Alignment.Center){Text("$count",fontSize=12.sp,fontWeight=FontWeight.Bold,color=Color(0xFF3B82F6))}
         }
     }
@@ -437,7 +450,7 @@ fun shareExportFile(ctx:Context,fileName:String,mime:String,content:String,title
 
 
 @OptIn(ExperimentalFoundationApi::class)
-@Composable fun CompactSimCard(r:PhoneNumberRecord,on编辑:(PhoneNumberRecord)->Unit,onDel:(PhoneNumberRecord)->Unit,onTraffic:(PhoneNumberRecord)->Unit,onKeep:(PhoneNumberRecord,Int)->Unit,days:Long?,remindDays:Int,showFlag:Boolean=true,dark:Boolean=false){
+@Composable fun CompactSimCard(r:PhoneNumberRecord,on编辑:(PhoneNumberRecord)->Unit,onDel:(PhoneNumberRecord)->Unit,onTraffic:(PhoneNumberRecord)->Unit,onKeep:(PhoneNumberRecord,Int)->Unit,days:Long?,remindDays:Int,showFlag:Boolean=true,dark:Boolean=false,sorting:Boolean=false,onStartSort:()->Unit={},dragModifier:Modifier=Modifier,isDragging:Boolean=false){
     val progress=when{days==null->.35f; days<0->.04f; else->(days.coerceIn(0,120).toFloat()/120f).coerceIn(.08f,.98f)}
     var hidden by remember{ mutableStateOf(true) }
     var del by remember{ mutableStateOf(false) }
@@ -445,7 +458,7 @@ fun shareExportFile(ctx:Context,fileName:String,mime:String,content:String,title
     var showMenu by remember{ mutableStateOf(false) }
     val cardBg=if(dark) Color(0xFF1E2430).copy(alpha=.85f) else Color.White.copy(alpha=.35f); val cardBorder=if(dark) Color(0xFF2A3040).copy(alpha=.60f) else Color.White.copy(alpha=.50f); val txtPrimary=if(dark) Color(0xFFE8EAED) else if(showFlag) Color.White else Color(0xFF111827); val txtSecondary=if(dark) Color(0xFF9AA0A6) else if(showFlag) Color.White.copy(alpha=.85f) else Color(0xFF6B7280); val txtBody=if(dark) Color(0xFFD1D5DB) else if(showFlag) Color.White.copy(alpha=.9f) else Color(0xFF374151)
     val clipboardManager = LocalClipboardManager.current
-    Card(shape=RoundedCornerShape(24.dp),colors=CardDefaults.cardColors(containerColor=cardBg),elevation=CardDefaults.cardElevation(0.dp),modifier=Modifier.fillMaxWidth().height(150.dp).border(1.dp,cardBorder,RoundedCornerShape(24.dp)).combinedClickable(onClick={},onLongClick={showMenu=true})){
+    Card(shape=RoundedCornerShape(24.dp),colors=CardDefaults.cardColors(containerColor=cardBg),elevation=CardDefaults.cardElevation(0.dp),modifier=Modifier.fillMaxWidth().height(150.dp).graphicsLayer{ scaleX=if(isDragging) 1.025f else 1f; scaleY=if(isDragging) 1.025f else 1f; shadowElevation=if(isDragging) 22f else 0f }.border(1.dp,cardBorder,RoundedCornerShape(24.dp)).then(if(sorting) dragModifier else Modifier.combinedClickable(onClick={},onLongClick={showMenu=true}))){
         Box(Modifier.fillMaxSize()){
             // frosted glass shimmer
             val glass=if(dark) listOf(Color(0xFF1E2430).copy(alpha=.15f),Color(0xFF1E2430).copy(alpha=.06f),Color(0xFF1E2430).copy(alpha=.12f)) else listOf(Color.White.copy(alpha=.18f),Color.White.copy(alpha=.08f),Color.White.copy(alpha=.15f)); Box(Modifier.fillMaxSize().background(Brush.verticalGradient(glass)).clip(RoundedCornerShape(24.dp)))
@@ -462,6 +475,7 @@ fun shareExportFile(ctx:Context,fileName:String,mime:String,content:String,title
                     else Text("∞",fontSize=11.sp,fontWeight=FontWeight.Bold,color=Color.White,modifier=Modifier.clip(RoundedCornerShape(999.dp)).background(Color(0xFF007AFF)).padding(horizontal=6.dp,vertical=2.dp))
                     Spacer(Modifier.width(5.dp))
                     Text(r.countryName,fontSize=12.sp,color=txtSecondary,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.widthIn(max=72.dp))
+                    if(sorting){ Spacer(Modifier.width(6.dp)); Text("≡",fontSize=20.sp,fontWeight=FontWeight.Bold,color=txtSecondary) }
                 }
                 Row(verticalAlignment=Alignment.CenterVertically){
                     Text(L("预付费")+" · ",fontSize=12.sp,color=txtBody,maxLines=1)
@@ -481,7 +495,7 @@ fun shareExportFile(ctx:Context,fileName:String,mime:String,content:String,title
 
             }
             if(showMenu){
-                val mEdit=L("编辑"); val mCopy=L("复制号码"); val mKeep=L("保号"); val mTraffic=L("刷流量"); val mDel=L("删除")
+                val mEdit=L("编辑"); val mCopy=L("复制号码"); val mKeep=L("保号"); val mTraffic=L("刷流量"); val mSort="排序"; val mDel=L("删除")
                 Popup(alignment=Alignment.Center,onDismissRequest={showMenu=false}){
                     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=0.35f)).clickable{showMenu=false},contentAlignment=Alignment.Center){
                         Card(shape=RoundedCornerShape(14.dp),colors=CardDefaults.cardColors(containerColor=Color.White),elevation=CardDefaults.cardElevation(12.dp),modifier=Modifier.widthIn(min=220.dp,max=280.dp)){
@@ -492,6 +506,7 @@ fun shareExportFile(ctx:Context,fileName:String,mime:String,content:String,title
                                     MenuItem(mCopy){showMenu=false;clipboardManager.setText(AnnotatedString(r.number))},
                                     MenuItem(mKeep){showMenu=false;keep=true},
                                     MenuItem(mTraffic){showMenu=false;onTraffic(r)},
+                                    MenuItem(mSort){showMenu=false;onStartSort()},
                                     MenuItem(mDel,isDel=true){showMenu=false;del=true},
                                 )
                                 items.forEachIndexed{idx,item->
@@ -1182,26 +1197,57 @@ object OperatorLogoAssets {
     }else Box(Modifier.fillMaxSize().background(if(settings.dark) Color(0xFF0B0F17) else Color(0xFFF4F5F7)))
 }
 
-@Composable fun Home(ctx:Context,records:List<PhoneNumberRecord>,settings:App设置,search:String,filter:String,sortMode:String,on筛选:(String)->Unit,on排序:()->Unit,onAdd:()->Unit,on编辑:(PhoneNumberRecord)->Unit,onDel:(PhoneNumberRecord)->Unit,onDial:(PhoneNumberRecord)->Unit,onTraffic:(PhoneNumberRecord)->Unit,onKeep:(PhoneNumberRecord,Int)->Unit){
+@Composable fun Home(ctx:Context,records:List<PhoneNumberRecord>,settings:App设置,search:String,filter:String,sortMode:String,on筛选:(String)->Unit,on排序:()->Unit,onAdd:()->Unit,on编辑:(PhoneNumberRecord)->Unit,onDel:(PhoneNumberRecord)->Unit,onDial:(PhoneNumberRecord)->Unit,onTraffic:(PhoneNumberRecord)->Unit,onKeep:(PhoneNumberRecord,Int)->Unit,onReorder:(List<String>)->Unit={}){
     val today=LocalDate.now()
     fun daysOf(r:PhoneNumberRecord)=runCatching{LocalDate.parse(r.expireDate).toEpochDay()-today.toEpochDay()}.getOrNull()
     val q=search.trim().lowercase()
+    var sorting by remember{ mutableStateOf(false) }
+    var orderedIds by remember(records){ mutableStateOf(records.sortedBy{ if(it.sortOrder>0) it.sortOrder else Int.MAX_VALUE }.map{it.id}) }
     val filtered=records.filter{ r->
         val d=daysOf(r)
         val ok=when(filter){"正常"->d!=null && d>settings.remind天;"即将到期"->d!=null && d in 0..settings.remind天;"已过期"->d!=null && d<0;else->true}
         ok && (q.isEmpty() || (r.number+r.operator+r.countryName+r.countryCode+r.note).lowercase().contains(q))
     }
-    val shown=if(sortMode=="到期远") filtered.sortedByDescending{ daysOf(it) ?: Long.MIN_VALUE } else filtered.sortedBy{ daysOf(it) ?: Long.MAX_VALUE }
+    val customSorted=filtered.sortedWith(compareBy<PhoneNumberRecord>{ val i=orderedIds.indexOf(it.id); if(i>=0) i else Int.MAX_VALUE }.thenBy{ if(it.sortOrder>0) it.sortOrder else Int.MAX_VALUE })
+    val shown=if(sorting) customSorted else when(sortMode){"到期远"->filtered.sortedByDescending{ daysOf(it) ?: Long.MIN_VALUE };"到期近"->filtered.sortedBy{ daysOf(it) ?: Long.MAX_VALUE };else->customSorted}
+    val lazyListState = rememberLazyListState()
+    val reorderableLazyListState = rememberReorderableLazyListState(lazyListState) { from, to ->
+        if(!sorting) return@rememberReorderableLazyListState
+        val visible=customSorted.map{it.id}.toMutableList()
+        val fromIndex=(from.index-1).coerceIn(0, visible.lastIndex)
+        val toIndex=(to.index-1).coerceIn(0, visible.lastIndex)
+        if(fromIndex==toIndex) return@rememberReorderableLazyListState
+        visible.add(toIndex, visible.removeAt(fromIndex))
+        val rest=orderedIds.filterNot{visible.contains(it)}
+        orderedIds=visible+rest
+    }
     Box(Modifier.fillMaxSize()){
         AppBackground(settings)
-        LazyColumn(Modifier.fillMaxSize().padding(horizontal=22.dp),verticalArrangement=Arrangement.spacedBy(9.dp)){
-            item{ FilterToolRow(filter,sortMode,on筛选,on排序,shown.size) }
+        LazyColumn(state=lazyListState,modifier=Modifier.fillMaxSize().padding(horizontal=22.dp),verticalArrangement=Arrangement.spacedBy(9.dp)){
+            item{
+                if(sorting){
+                    Row(Modifier.fillMaxWidth().padding(top=4.dp,bottom=2.dp),verticalAlignment=Alignment.CenterVertically){
+                        Text("排序中",fontSize=15.sp,fontWeight=FontWeight.SemiBold,color=dk(Color(0xFFE5E5E7),Color(0xFF111827)),modifier=Modifier.weight(1f))
+                        Text("完成",fontSize=15.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF007AFF),modifier=Modifier.clickable{ sorting=false; onReorder(orderedIds) }.padding(horizontal=8.dp,vertical=6.dp))
+                    }
+                }else FilterToolRow(filter,sortMode,on筛选,on排序,shown.size)
+            }
             if(shown.isEmpty()) item{ Box(Modifier.fillMaxWidth().height(260.dp),contentAlignment=Alignment.Center){ Column(horizontalAlignment=Alignment.CenterHorizontally){Text(L("暂无号码"),fontSize=18.sp,fontWeight=FontWeight.SemiBold);Text(L("点击右下角添加号码"),fontSize=13.sp,color=Color(0xFF8E8E93))} } }
-            else items(shown,key={it.id}){ r-> CompactSimCard(r,on编辑,onDel,onTraffic,onKeep,daysOf(r),settings.remind天,settings.showFlag,settings.dark) }
+            else items(shown,key={it.id}){ r->
+                if(sorting){
+                    ReorderableItem(reorderableLazyListState, key=r.id) { isDragging ->
+                        CompactSimCard(r,on编辑,onDel,onTraffic,onKeep,daysOf(r),settings.remind天,settings.showFlag,settings.dark,true,{},Modifier.longPressDraggableHandle(),isDragging)
+                    }
+                }else{
+                    CompactSimCard(r,on编辑,onDel,onTraffic,onKeep,daysOf(r),settings.remind天,settings.showFlag,settings.dark,false,{ sorting=true; orderedIds=records.sortedBy{ if(it.sortOrder>0) it.sortOrder else Int.MAX_VALUE }.map{it.id} })
+                }
+            }
             item{ Spacer(Modifier.height(90.dp)) }
         }
-        Box(Modifier.align(Alignment.BottomEnd).padding(end=20.dp,bottom=86.dp).size(56.dp)){
-            FloatingActionButton(onClick=onAdd,containerColor=Color(0xFF3B82F6),contentColor=Color.White,shape=RoundedCornerShape(20.dp),modifier=Modifier.fillMaxSize()){Text("＋",fontSize=27.sp,fontWeight=FontWeight.Medium)}
+        if(!sorting){
+            Box(Modifier.align(Alignment.BottomEnd).padding(end=20.dp,bottom=86.dp).size(56.dp)){
+                FloatingActionButton(onClick=onAdd,containerColor=Color(0xFF3B82F6),contentColor=Color.White,shape=RoundedCornerShape(20.dp),modifier=Modifier.fillMaxSize()){Text("＋",fontSize=27.sp,fontWeight=FontWeight.Medium)}
+            }
         }
     }
 }
@@ -2782,9 +2828,8 @@ fun splitCsvLine(line:String):List<String>{
 
 fun parseRecordObject(o:JSONObject)=PhoneNumberRecord(
     id=o.optString("id",UUID.randomUUID().toString()), countryCode=o.optString("countryCode","+86"), countryName=o.optString("countryName","中国"), flag=o.optString("flag","🇨🇳"), number=o.optString("number"), operator=o.optString("operator"), expireDate=o.optString("expireDate",LocalDate.now().plusDays(30).toString()), note=o.optString("note"),
-    balance=o.optString("balance"), eid=o.optString("eid"), smdp=o.optString("smdp"), activationCode=o.optString("activationCode"), startDate=o.optString("startDate",LocalDate.now().toString()), createdAt=o.optString("createdAt",LocalDate.now().toString()), activatedAt=o.optString("activatedAt"), longTerm=o.optBoolean("longTerm",false), cycleDays=o.optInt("cycleDays",30), signalStatus=o.optString("signalStatus","在线")
+    balance=o.optString("balance"), eid=o.optString("eid"), smdp=o.optString("smdp"), activationCode=o.optString("activationCode"), startDate=o.optString("startDate",LocalDate.now().toString()), createdAt=o.optString("createdAt",LocalDate.now().toString()), activatedAt=o.optString("activatedAt"), longTerm=o.optBoolean("longTerm",false), cycleDays=o.optInt("cycleDays",30), signalStatus=o.optString("signalStatus","在线"), tags=o.optString("tags",""), transactionNotes=o.optString("transactionNotes",""), customPrompt=o.optString("customPrompt",""), websiteURL=o.optString("websiteURL",""), cyclePaymentMinorUnits=o.optInt("cyclePaymentMinorUnits",0), currencyCode=o.optString("currencyCode",""), cardBackgroundAssetName=o.optString("cardBackgroundAssetName",""), cardColorHex=o.optString("cardColorHex",""), sortOrder=o.optInt("sortOrder",0)
 )
-
 fun parseRecordsJson(text:String):Pair<List<PhoneNumberRecord>,App设置?>{
     return runCatching{
         val trimmed=text.trim()
