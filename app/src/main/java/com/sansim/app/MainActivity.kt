@@ -275,12 +275,14 @@ class MainActivity: ComponentActivity(){ private val req=registerForActivityResu
     val lang = settings.language
     fun tx(key:String)=tr(lang,key)
     fun autoCloudSync(rs:List<PhoneNumberRecord>, st:App设置){
-        if(st.cloudEnabled && st.cloudAutoSync && cleanCloudApiKey(st.cloudApiKey).isNotBlank()){
+        if(st.cloudEnabled && st.cloudAutoSync && cleanCloudApiKey(st.cloudApiKey).isNotBlank() && rs.isNotEmpty()){
             cloudGet(st,"/api/sync"){ok,msg->
-                val (cloudRecords,cloudSettings)=if(ok) parseCloudPayloadResponse(msg) else Pair(emptyList<PhoneNumberRecord>(),null)
-                val merged=mergeRecords(cloudRecords,rs)
-                val mergedSettings=mergeCloudSettings(st,cloudSettings)
-                cloudPost(mergedSettings,"/api/sync",cloudPayload(merged,mergedSettings)){_,_->}
+                if(ok || msg.contains("404") || msg.contains("暂无") || msg.contains("no cloud data",true)){
+                    val (cloudRecords,cloudSettings)=if(ok) parseCloudPayloadResponse(msg) else Pair(emptyList<PhoneNumberRecord>(),null)
+                    val merged=mergeRecords(cloudRecords,rs)
+                    val mergedSettings=mergeCloudSettings(st,cloudSettings)
+                    cloudPost(mergedSettings,"/api/sync",cloudPayload(merged,mergedSettings)){_,_->}
+                }
             }
         }
     }
@@ -2220,10 +2222,13 @@ fun restoreCloudBackupById(st:App设置, backupId:Int, onResult:(Boolean,String)
                     cloudGet(st,"/api/sync"){ok,msg->
                         if(ok){
                             val cloudData=parseCloudPayloadResponse(msg)
-                            if(cloudData.first.isNotEmpty()) cloudSyncChoice=cloudData
-                            else cloudPost(st,"/api/sync",cloudPayload(records,st)){ok2,msg2-> showCloudMsg(if(ok2) S("同步成功") else msg2); if(ok2) loadCloudOverview() }
+                            if(cloudData.first.isNotEmpty()){
+                                if(records.isEmpty()) showCloudMsg("云端已有数据，请先从云端恢复") else cloudSyncChoice=cloudData
+                            }else{
+                                if(records.isEmpty()) showCloudMsg("本地暂无号码") else cloudPost(st,"/api/sync",cloudPayload(records,st)){ok2,msg2-> showCloudMsg(if(ok2) S("同步成功") else msg2); if(ok2) loadCloudOverview() }
+                            }
                         }else if(msg.contains("404") || msg.contains("暂无") || msg.contains("no cloud data",true)){
-                            cloudPost(st,"/api/sync",cloudPayload(records,st)){ok2,msg2-> showCloudMsg(if(ok2) S("同步成功") else msg2); if(ok2) loadCloudOverview() }
+                            if(records.isEmpty()) showCloudMsg("本地暂无号码") else cloudPost(st,"/api/sync",cloudPayload(records,st)){ok2,msg2-> showCloudMsg(if(ok2) S("同步成功") else msg2); if(ok2) loadCloudOverview() }
                         }else showCloudMsg(msg)
                     }
                 },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("同步到云端"))}
@@ -2467,7 +2472,11 @@ Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
     if(cloudOverwriteConfirm){
         IOSConfirmDialog("确认覆盖云端？","将用当前手机的 ${records.size} 个号码替换云端数据。新版服务会在覆盖前自动备份旧云端数据；如果服务尚未升级，建议优先使用合并同步。",true,{cloudOverwriteConfirm=false},{
             cloudOverwriteConfirm=false
-            cloudPost(st,"/api/sync",cloudPayload(records,st)){ok,msg-> showCloudMsg(if(ok) "覆盖云端完成：${records.size} 个号码" else msg); if(ok) loadCloudOverview() }
+            if(records.isEmpty()){
+                showCloudMsg("本地暂无号码")
+            }else{
+                cloudPost(st,"/api/sync",cloudPayload(records,st)){ok,msg-> showCloudMsg(if(ok) "覆盖云端完成：${records.size} 个号码" else msg); if(ok) loadCloudOverview() }
+            }
         })
     }
     showCloudBackupRestoreConfirm?.let{ item ->
