@@ -1946,6 +1946,7 @@ fun cleanCloudApiKey(raw:String):String {
     val exact=Regex("[A-Za-z0-9_-]{24,80}").findAll(t).map{it.value}.filterNot{ it.equals("API",true) || it.equals("Key",true) }.toList()
     return (exact.lastOrNull() ?: t.lineSequence().map{it.trim()}.firstOrNull{it.isNotBlank()} ?: "").replace(Regex("[\r\n\t ]+"),"").trim()
 }
+fun isValidCloudApiKey(key:String):Boolean = Regex("^[A-Za-z0-9_-]{24,80}$").matches(cleanCloudApiKey(key))
 fun cleanCloudUrl(raw:String):String = raw.trim().trimEnd('/')
 
 fun cloudPayload(records:List<PhoneNumberRecord>,s:App设置):String{
@@ -2040,6 +2041,9 @@ fun mergeCloudSettings(current:App设置,cloud:App设置?):App设置{
     var cloudSyncChoice by remember{ mutableStateOf<Pair<List<PhoneNumberRecord>,App设置?>?>(null) }
     var cloudRestoreChoice by remember{ mutableStateOf<Pair<List<PhoneNumberRecord>,App设置?>?>(null) }
     var cloudOverwriteConfirm by remember{ mutableStateOf(false) }
+    var keyGenerateConfirm by remember{ mutableStateOf(false) }
+    var keyExistingDialog by remember{ mutableStateOf(false) }
+    var keyRegenerateConfirm by remember{ mutableStateOf(false) }
     val pageLang = LocalAppLanguage.current
     fun S(key:String)=tr(pageLang,key)
     val bgPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? -> if(uri!=null){ st=st.copyMut{backgroundUri=uri.toString()}; on(st) } }
@@ -2088,12 +2092,8 @@ fun mergeCloudSettings(current:App设置,cloud:App设置?):App设置{
                 },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("复制 Key"))}
                 Button({
                     val existing=cleanCloudApiKey(st.cloudApiKey)
-                    if(existing.isNotBlank()){
-                        cloudMsg=S("已有固定Key说明")
-                    }else{
-                        cloudPost(st,"/api/register","{}"){ok,msg-> if(ok) { try{ val r=JSONObject(msg); val k=r.optString("apiKey",""); if(k.isNotBlank()){ st=st.copyMut{cloudApiKey=k}; on(st); cloudMsg=S("已生成本机固定 Key，已保存") }else cloudMsg=msg } catch(_:Exception){ cloudMsg=msg } }else cloudMsg=msg }
-                    }
-                },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(S("生成我的 Key"))}
+                    if(existing.isBlank() || !isValidCloudApiKey(existing)) keyGenerateConfirm=true else keyExistingDialog=true
+                },shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Text(if(cleanCloudApiKey(st.cloudApiKey).isBlank()) S("生成我的 Key") else "更换 Key")}
             }
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
                 Button({
@@ -2235,6 +2235,49 @@ fun mergeCloudSettings(current:App设置,cloud:App设置?):App设置{
             }
         }
         Spacer(Modifier.height(20.dp))
+    }
+    fun generateNewCloudKey(){
+        cloudPost(st,"/api/register","{}"){ok,msg->
+            if(ok){
+                try{
+                    val r=JSONObject(msg); val k=r.optString("apiKey","")
+                    if(k.isNotBlank()){ st=st.copyMut{cloudApiKey=k; cloudEnabled=true}; on(st); cloudMsg="已生成新的 API Key，已保存" } else cloudMsg=msg
+                }catch(_:Exception){ cloudMsg=msg }
+            }else cloudMsg=msg
+        }
+    }
+    if(keyGenerateConfirm){
+        val invalid=cleanCloudApiKey(st.cloudApiKey).isNotBlank() && !isValidCloudApiKey(st.cloudApiKey)
+        CloudDataChoiceDialog(
+            title=if(invalid) "重新生成 API Key？" else "生成云端 API Key？",
+            message=if(invalid) "当前 API Key 格式无效。可以重新生成一个新的云端数据空间；如果你有旧 Key，也可以直接粘贴旧 Key 恢复访问。" else "API Key 用于识别你的云端数据空间。多台设备要同步同一份数据时，请使用同一个 Key。生成后会保存在本机。",
+            primary=if(invalid) "确认重新生成" else "确认生成",
+            secondary="取消",
+            dangerSecondary=false,
+            onDismiss={keyGenerateConfirm=false},
+            onPrimary={keyGenerateConfirm=false; generateNewCloudKey()},
+            onSecondary={keyGenerateConfirm=false}
+        )
+    }
+    if(keyExistingDialog){
+        CloudDataChoiceDialog(
+            title="当前已有 API Key",
+            message="如果重新生成，新 Key 会创建新的云端数据空间。旧 Key 下的数据不会删除，但需要旧 Key 才能再次访问。建议先复制当前 Key。",
+            primary="复制当前 Key",
+            secondary="重新生成",
+            dangerSecondary=true,
+            onDismiss={keyExistingDialog=false},
+            onPrimary={
+                keyExistingDialog=false
+                val clipboard=ctx.getSystemService(android.content.ClipboardManager::class.java)
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("api key",cleanCloudApiKey(st.cloudApiKey)))
+                cloudMsg="已复制当前 API Key"
+            },
+            onSecondary={keyExistingDialog=false; keyRegenerateConfirm=true}
+        )
+    }
+    if(keyRegenerateConfirm){
+        IOSConfirmDialog("确认重新生成？","重新生成后，本机将切换到新的云端数据空间。旧云端数据仍保留在旧 Key 下，但需要旧 Key 才能再次访问。",true,{keyRegenerateConfirm=false},{keyRegenerateConfirm=false; generateNewCloudKey()})
     }
     cloudSyncChoice?.let{ data->
         val cloudRecords=data.first; val cloudSettings=data.second
