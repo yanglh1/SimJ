@@ -21,6 +21,7 @@ simJ — SIM 卡 & eSIM 全能管家。
 gradle assembleDebug --no-daemon --max-workers=1
 ```
 TG频道：https://t.me/simjiangAPP
+
 TG交流群：https://t.me/simjiangg
 ## 下载
 
